@@ -18,6 +18,8 @@ import android.webkit.WebResourceResponse;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.webkit.WebChromeClient;
+import android.webkit.ValueCallback;
 import android.widget.FrameLayout;
 
 import androidx.webkit.WebViewAssetLoader;
@@ -33,6 +35,8 @@ public class MainActivity extends Activity {
 
     private static final String START_URL = "https://appassets.androidplatform.net/assets/index.html";
     private WebView webView;
+    private ValueCallback<Uri[]> fileCallback;
+    private static final int PICK_IMAGE = 42;
     private String userAgent = "Mozilla/5.0 (Linux; Android) LaBulleDeKiria";
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -69,6 +73,25 @@ public class MainActivity extends Activity {
         s.setMediaPlaybackRequiresUserGesture(true);
 
         webView.addJavascriptInterface(new Bridge(), "KiriaAndroid");
+        // Choix d'une image dans la galerie (couverture personnalisée)
+        webView.setWebChromeClient(new WebChromeClient() {
+            @Override
+            public boolean onShowFileChooser(WebView view, ValueCallback<Uri[]> callback, FileChooserParams params) {
+                if (fileCallback != null) fileCallback.onReceiveValue(null);
+                fileCallback = callback;
+                Intent pick = new Intent(Intent.ACTION_GET_CONTENT);
+                pick.addCategory(Intent.CATEGORY_OPENABLE);
+                pick.setType("image/*");
+                try {
+                    startActivityForResult(Intent.createChooser(pick, "Choisir une couverture"), PICK_IMAGE);
+                } catch (Exception e) {
+                    fileCallback = null;
+                    return false;
+                }
+                return true;
+            }
+        });
+
         webView.setWebViewClient(new WebViewClient() {
             @Override
             public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
@@ -113,6 +136,17 @@ public class MainActivity extends Activity {
                 root.setSystemUiVisibility(flags);
             }
             getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
+        }
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == PICK_IMAGE && fileCallback != null) {
+            Uri[] result = null;
+            if (resultCode == RESULT_OK && data != null && data.getData() != null) result = new Uri[]{data.getData()};
+            fileCallback.onReceiveValue(result);
+            fileCallback = null;
         }
     }
 

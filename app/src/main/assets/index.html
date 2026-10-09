@@ -563,7 +563,7 @@ function viewMe() {
       <p class="muted small" style="margin-top:0">Tout est enregistré sur ton téléphone. Exporte une sauvegarde de temps en temps pour ne rien perdre.</p>
       <div class="row" style="gap:10px"><button class="btn primary" style="flex:1" onclick="exportData()">⬆ Exporter</button><button class="btn" style="flex:1" onclick="openImport()">⬇ Importer</button></div>
     </div></div>
-  <div class="section" style="text-align:center"><div class="muted small">La Bulle de Kiria · v1.4<br>Données livres : BnF, Google Books & Open Library</div></div>`;
+  <div class="section" style="text-align:center"><div class="muted small">La Bulle de Kiria · v1.5<br>Données livres : BnF, Google Books & Open Library</div></div>`;
 }
 document.addEventListener('change', e => {
   if (e.target.id === 'set-name') { S.settings.name = e.target.value.trim() || 'Kiria'; save(); toast('Prénom enregistré'); }
@@ -619,7 +619,7 @@ function openAdd(replaceId) {
       <button class="chip lang-f ${S.settings.frOnly ? '' : 'p'}" data-fr="0">🌍 Toutes les langues</button>
     </div>
     <div id="results"><div class="empty" style="padding:24px 10px"><div class="bubble" style="width:70px;height:70px;font-size:30px">🔎</div>${target ? 'Choisis la bonne édition : ta progression et ton historique sont conservés.' : 'Recherche un livre, puis touche-le pour voir sa fiche avant de l’ajouter.'}</div></div>
-    ${target ? '' : '<button class="btn block" id="manual" style="margin-top:6px">✎ Saisir manuellement</button>'}`);
+    ${target ? '' : '<button class="btn block" id="manual" style="margin-top:6px">✎ Livre introuvable ? Saisir manuellement</button>'}`);
   const q = sh.querySelector('#q'), res = sh.querySelector('#results');
   let t, ctrl;
   q.oninput = () => { clearTimeout(t); t = setTimeout(run, 450); };
@@ -655,19 +655,27 @@ function previewResult(data, target) {
   const meta = [data.lang && langBadge(data.lang), data.pages && `📄 ${data.pages} pages`, data.year && `📅 ${esc(data.year)}`, data.publisher && `🏢 ${esc(data.publisher)}`, data.genre && `🏷 ${esc(data.genre)}`]
     .filter(Boolean).map(c => `<span class="chip">${c}</span>`).join('');
   const sh = openSheet('', `
-    <div class="detail-top">${coverHTML(data, 'c-lg')}<div style="min-width:0"><h2>${esc(data.title)}</h2><div class="muted" style="margin-top:6px">${esc(data.author || 'Auteur inconnu')}</div>
+    <div class="detail-top"><div id="pv-cv">${coverHTML(data, 'c-lg')}</div><div style="min-width:0"><h2>${esc(data.title)}</h2><div class="muted" style="margin-top:6px">${esc(data.author || 'Auteur inconnu')}</div>
       ${data.isbn ? `<div class="muted small" style="margin-top:4px">ISBN ${esc(data.isbn)}</div>` : ''}</div></div>
     <div class="chips">${meta}</div>
-    ${data.description ? `<div class="section"><div class="section-h"><h2>Résumé</h2></div><div class="desc open">${esc(data.description.replace(/<[^>]+>/g, ''))}</div></div>` : '<p class="muted small" style="margin-top:16px">Pas de résumé pour cette édition.</p>'}
+    <div id="pv-desc">${data.description ? `<div class="section"><div class="section-h"><h2>Résumé</h2></div><div class="desc open">${esc(data.description.replace(/<[^>]+>/g, ''))}</div></div>` : `<p class="muted small" style="margin-top:16px">${data.cover ? 'Pas de résumé pour cette édition.' : '⏳ Recherche de la couverture et du résumé…'}</p>`}</div>
     <div style="margin-top:20px"><button class="btn accent block" id="pv-go">${target ? '✓ Utiliser cette édition' : '＋ Ajouter ce livre'}</button>
     <button class="btn block" style="margin-top:10px" id="pv-back">← Retour aux résultats</button></div>`);
   sh.querySelector('.sh').style.padding = '0 18px';
   sh.querySelector('#pv-back').onclick = closeSheet;
+  if (!data.description || !data.cover || data.source === 'BnF') enrichBook(data).then(f => {
+    if (f.cover && (!data.cover || data.source === 'BnF')) { if (data.cover && data.cover !== f.cover) data.cover2 = data.cover; data.cover = f.cover; sh.querySelector('#pv-cv').innerHTML = coverHTML(data, 'c-lg'); }
+    if (f.description && !data.description) data.description = f.description;
+    if (f.pages && !data.pages) data.pages = f.pages;
+    sh.querySelector('#pv-desc').innerHTML = data.description ? `<div class="section"><div class="section-h"><h2>Résumé</h2></div><div class="desc open">${esc(data.description.replace(/<[^>]+>/g, ''))}</div></div>`
+      : '<p class="muted small" style="margin-top:16px">Pas de résumé trouvé. Tu pourras l’ajouter avec « Modifier la fiche ».</p>';
+  }).catch(() => {});
   sh.querySelector('#pv-go').onclick = () => {
     if (target) {
       const keep = { id: target.id, status: target.status, currentPage: target.currentPage, rating: target.rating, notes: target.notes, addedAt: target.addedAt, startedAt: target.startedAt, finishedAt: target.finishedAt, lastReadAt: target.lastReadAt, palOrder: target.palOrder, releaseDate: target.releaseDate };
+      const own = (target.cover || '').startsWith('data:') ? target.cover : null;
       ['title', 'author', 'pages', 'cover', 'cover2', 'year', 'publisher', 'isbn', 'description', 'genre', 'lang'].forEach(k => target[k] = data[k] ?? '');
-      Object.assign(target, keep);
+      Object.assign(target, keep); if (own) target.cover = own;
       if (target.pages && target.currentPage > target.pages) target.currentPage = target.pages;
       if (target.status === 'read' && target.pages) target.currentPage = target.pages;
       save(); closeAll(); render(); openBook(target.id); toast('Édition mise à jour ✓');
@@ -775,23 +783,95 @@ function addBook(data, status) {
   return b;
 }
 
+/* ---------- Compléter une fiche (couverture, résumé) ---------- */
+async function enrichBook(b) {
+  const isbn = isbn13(b.isbn);
+  const norm = s => (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]/g, '');
+  const found = {};
+  const take = x => { for (const f of ['cover', 'description', 'pages', 'publisher', 'year', 'genre']) if (!found[f] && x[f]) found[f] = x[f]; };
+  const tries = [];
+  if (isbn) tries.push(fetch('https://www.googleapis.com/books/v1/volumes?q=isbn:' + isbn).then(r => r.json()).then(d => (d.items || []).map(gbMap).forEach(take)));
+  if (b.title) tries.push(fetch('https://www.googleapis.com/books/v1/volumes?maxResults=20&langRestrict=fr&q=' + encodeURIComponent('intitle:' + b.title + (b.author ? ' inauthor:' + b.author.split(',')[0] : '')))
+    .then(r => r.json()).then(d => (d.items || []).map(gbMap).filter(x => norm(x.title).startsWith(norm(b.title).slice(0, 12)) && (isbnLang(x.isbn) === 'fr' || (!x.isbn && x.lang === 'fr')))
+      .sort((x, y) => (y.isbn === isbn) - (x.isbn === isbn)).forEach(take)));
+  await Promise.all(tries.map(t => t.catch(() => null)));
+  if (!found.cover && isbn) {
+    const ok = await new Promise(res => { const i = new Image(); i.onload = () => res(i.naturalWidth > 20); i.onerror = () => res(false); i.src = `https://covers.openlibrary.org/b/isbn/${isbn}-L.jpg?default=false`; setTimeout(() => res(false), 8000); });
+    if (ok) found.cover = `https://covers.openlibrary.org/b/isbn/${isbn}-L.jpg?default=false`;
+  }
+  return found;
+}
+
+/* Image de la galerie → petite image JPEG gardée dans l'app */
+function pickImage() {
+  return new Promise((res, rej) => {
+    const inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'image/*';
+    inp.onchange = () => {
+      const f = inp.files && inp.files[0]; if (!f) return rej(new Error('aucune image'));
+      const fr = new FileReader();
+      fr.onload = () => {
+        const img = new Image();
+        img.onload = () => {
+          const H = 480, scale = Math.min(1, H / img.height);
+          const c = document.createElement('canvas'); c.width = Math.round(img.width * scale); c.height = Math.round(img.height * scale);
+          c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+          res(c.toDataURL('image/jpeg', 0.82));
+        };
+        img.onerror = () => rej(new Error('image illisible')); img.src = fr.result;
+      };
+      fr.readAsDataURL(f);
+    };
+    inp.click();
+  });
+}
+
 /* ---------- Édition ---------- */
 function openEdit(id, prefill = {}) {
-  const b = id ? book(id) : Object.assign({ title: '', author: '', pages: '', cover: '', year: '', publisher: '', isbn: '' }, prefill);
-  const sh = openSheet(id ? 'Modifier le livre' : 'Nouveau livre', `
+  const b = id ? book(id) : Object.assign({ title: '', author: '', pages: '', cover: '', year: '', publisher: '', isbn: '', description: '', releaseDate: '' }, prefill);
+  let cover = b.cover || '', cover2 = b.cover2 || '';
+  const sh = openSheet(id ? 'Modifier la fiche' : 'Nouveau livre', `
+    <div class="row" style="gap:14px;align-items:flex-end;margin-bottom:14px">
+      <div id="e-cv"></div>
+      <div style="flex:1;display:flex;flex-direction:column;gap:8px">
+        <button class="btn sm" id="e-pick">🖼 Choisir dans la galerie</button>
+        <button class="btn sm" id="e-auto">✨ Trouver couverture & résumé</button>
+        <button class="btn sm danger" id="e-nocv">Retirer la couverture</button>
+      </div>
+    </div>
     <div class="field"><label>Titre *</label><input id="e-title" value="${esc(b.title)}"></div>
     <div class="field"><label>Auteur</label><input id="e-author" value="${esc(b.author)}"></div>
     <div class="two"><div class="field"><label>Nombre de pages</label><input id="e-pages" type="number" inputmode="numeric" value="${esc(b.pages || '')}"></div>
     <div class="field"><label>Année</label><input id="e-year" inputmode="numeric" value="${esc(b.year || '')}"></div></div>
     <div class="field"><label>Éditeur</label><input id="e-pub" value="${esc(b.publisher || '')}"></div>
     <div class="field"><label>ISBN</label><input id="e-isbn" inputmode="numeric" value="${esc(b.isbn || '')}"></div>
-    <div class="field"><label>Lien de la couverture (facultatif)</label><input id="e-cover" type="url" value="${esc(b.cover || '')}"></div>
+    <div class="field"><label>Date de sortie (pour les livres à paraître)</label><input id="e-release" type="date" value="${esc(b.releaseDate || '')}"></div>
+    <div class="field"><label>Résumé</label><textarea id="e-desc" rows="5" placeholder="Colle ou écris le résumé (4e de couverture)…">${esc((b.description || '').replace(/<[^>]+>/g, ''))}</textarea></div>
+    <div class="field"><label>…ou lien d’une image de couverture</label><input id="e-cover" type="url" placeholder="https://…" value="${esc(cover.startsWith('data:') ? '' : cover)}"></div>
     <button class="btn primary block" id="e-save">${id ? 'Enregistrer' : 'Continuer'}</button>`);
-  sh.querySelector('#e-save').onclick = () => {
-    const v = k => sh.querySelector('#e-' + k).value.trim();
+  const $ = k => sh.querySelector('#e-' + k);
+  const draw = () => { $('cv').innerHTML = coverHTML({ title: $('title').value || b.title, cover, cover2 }, 'c-md'); };
+  draw();
+  $('title').oninput = draw;
+  $('cover').onchange = () => { cover = $('cover').value.trim(); cover2 = ''; draw(); };
+  $('pick').onclick = async () => { try { cover = await pickImage(); cover2 = ''; $('cover').value = ''; draw(); toast('Couverture ajoutée 🖼'); } catch (e) { } };
+  $('nocv').onclick = () => { cover = ''; cover2 = ''; $('cover').value = ''; draw(); };
+  $('auto').onclick = async () => {
+    const btn = $('auto'); btn.textContent = '⏳ Recherche…'; btn.disabled = true;
+    const f = await enrichBook({ title: $('title').value.trim(), author: $('author').value.trim(), isbn: $('isbn').value.trim() });
+    let n = 0;
+    if (f.cover && !cover.startsWith('data:')) { cover = f.cover; cover2 = ''; $('cover').value = f.cover; draw(); n++; }
+    if (f.description && !$('desc').value.trim()) { $('desc').value = f.description.replace(/<[^>]+>/g, ''); n++; }
+    if (f.pages && !$('pages').value) { $('pages').value = f.pages; }
+    btn.textContent = '✨ Trouver couverture & résumé'; btn.disabled = false;
+    toast(n ? 'Infos trouvées ✨' : 'Rien trouvé — tu peux les ajouter à la main');
+  };
+  $('save').onclick = () => {
+    const v = k => $(k).value.trim();
     if (!v('title')) { toast('Le titre est obligatoire'); return; }
-    const data = { title: v('title'), author: v('author'), pages: Math.max(0, parseInt(v('pages')) || 0), year: v('year'), publisher: v('pub'), isbn: v('isbn'), cover: v('cover') };
-    if (id) { Object.assign(b, data); if (b.status === 'read') b.currentPage = b.pages; save(); closeSheet(); closeSheet(); openBook(id); render(); toast('Modifications enregistrées'); }
+    const data = { title: v('title'), author: v('author'), pages: Math.max(0, parseInt(v('pages')) || 0), year: v('year') || (v('release') || '').slice(0, 4),
+      publisher: v('pub'), isbn: v('isbn'), cover, cover2, description: v('desc'), releaseDate: v('release') };
+    if (data.isbn && isbnLang(data.isbn)) data.lang = isbnLang(data.isbn);
+    if (id) { Object.assign(b, data); if (b.status === 'read') b.currentPage = b.pages; save(); closeSheet(); closeSheet(); openBook(id); render(); toast('Fiche enregistrée'); }
     else { closeSheet(); chooseStatus(data); }
   };
 }
@@ -833,7 +913,7 @@ function openBook(id) {
     <div class="section"><div class="section-h"><h2>Mes notes</h2></div><div class="field" style="margin:0"><textarea id="d-notes" rows="3" placeholder="Citations, impressions, personnages…">${esc(b.notes || '')}</textarea></div></div>
     ${logs.length ? `<div class="section"><div class="section-h"><h2>Historique</h2><span class="muted small">${logs.length} entrée${logs.length > 1 ? 's' : ''}</span></div><div class="card">${logs.slice(0, 30).map(l => histRow(l)).join('')}</div></div>` : ''}
     <button class="btn block" style="margin-top:24px" id="d-edition">🔄 Changer d’édition</button>
-    <div class="row" style="margin-top:10px;gap:10px"><button class="btn" style="flex:1" id="d-edit">✎ Modifier</button><button class="btn danger" style="flex:1" id="d-del">Supprimer</button></div>`);
+    <div class="row" style="margin-top:10px;gap:10px"><button class="btn" style="flex:1" id="d-edit">✎ Modifier la fiche</button><button class="btn danger" style="flex:1" id="d-del">Supprimer</button></div>`);
   sh.querySelector('.sh').style.padding = '0 18px';
   bindView(sh);
   sh.querySelectorAll('[data-st]').forEach(p => p.onclick = () => { setStatus(b, p.dataset.st); closeSheet(); setTimeout(() => openBook(id), 150); });
