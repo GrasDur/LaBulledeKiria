@@ -259,19 +259,31 @@ function bubbles() {
 
 /* ---------- Réseau (via Android quand disponible : pas de blocage CORS) ---------- */
 const pendingHttp = {};
-window.__kiriaHttp = (id, code, body) => {
+window.__kiriaHttp = (id, code, body, err) => {
   const p = pendingHttp[id]; if (!p) return; delete pendingHttp[id];
-  (code >= 200 && code < 300 && body != null) ? p.res(body) : p.rej(new Error('HTTP ' + code));
+  (code >= 200 && code < 300 && body != null) ? p.res(body) : p.rej(new Error(code ? 'HTTP ' + code : (err || 'réseau')));
 };
-function httpText(url, signal) {
-  if (window.KiriaAndroid && KiriaAndroid.httpGet) return new Promise((res, rej) => {
+function nativeGet(url, signal) {
+  return new Promise((res, rej) => {
     const id = uid(); pendingHttp[id] = { res, rej };
     signal && signal.addEventListener('abort', () => { if (pendingHttp[id]) { delete pendingHttp[id]; rej(new DOMException('Annulé', 'AbortError')); } });
-    setTimeout(() => { if (pendingHttp[id]) { delete pendingHttp[id]; rej(new Error('timeout')); } }, 20000);
+    setTimeout(() => { if (pendingHttp[id]) { delete pendingHttp[id]; rej(new Error('délai dépassé')); } }, 25000);
     KiriaAndroid.httpGet(id, url);
   });
-  return fetch(url, { signal }).then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); });
 }
+async function httpText(url, signal) {
+  let first;
+  if (window.KiriaAndroid && typeof KiriaAndroid.httpGet === 'function') {
+    try { return await nativeGet(url, signal); } catch (e) { if (e.name === 'AbortError') throw e; first = e; }
+  }
+  try {
+    const r = await fetch(url, { signal }); if (!r.ok) throw new Error('HTTP ' + r.status); return await r.text();
+  } catch (e) {
+    if (e.name === 'AbortError') throw e;
+    throw new Error((first ? 'natif: ' + first.message + ' / ' : '') + 'web: ' + e.message);
+  }
+}
+const searchInfo = {};
 
 /* ---------- Catalogue BnF (toutes les éditions publiées en France) ---------- */
 const DC = 'http://purl.org/dc/elements/1.1/';
@@ -304,7 +316,10 @@ async function bnfSearch(term, isIsbn, signal) {
   const clean = term.replace(/"/g, ' ').trim();
   const cql = isIsbn ? `bib.isbn all "${clean.replace(/[-\s]/g, '')}"` : `bib.anywhere all "${clean}"`;
   const url = 'https://catalogue.bnf.fr/api/SRU?version=1.2&operation=searchRetrieve&recordSchema=dublincore&maximumRecords=25&query=' + encodeURIComponent(cql);
-  return bnfParse(await httpText(url, signal));
+  try {
+    const r = bnfParse(await httpText(url, signal));
+    searchInfo.bnf = '✓ ' + r.length; return r;
+  } catch (e) { if (e.name !== 'AbortError') searchInfo.bnf = '✗ ' + e.message; throw e; }
 }
 
 /* ---------- Couvertures ---------- */
@@ -512,7 +527,7 @@ function viewMe() {
       <p class="muted small" style="margin-top:0">Tout est enregistré sur ton téléphone. Exporte une sauvegarde de temps en temps pour ne rien perdre.</p>
       <div class="row" style="gap:10px"><button class="btn primary" style="flex:1" onclick="exportData()">⬆ Exporter</button><button class="btn" style="flex:1" onclick="openImport()">⬇ Importer</button></div>
     </div></div>
-  <div class="section" style="text-align:center"><div class="muted small">La Bulle de Kiria · v1.2<br>Données livres : BnF, Google Books & Open Library</div></div>`;
+  <div class="section" style="text-align:center"><div class="muted small">La Bulle de Kiria · v1.3<br>Données livres : BnF, Google Books & Open Library</div></div>`;
 }
 document.addEventListener('change', e => {
   if (e.target.id === 'set-name') { S.settings.name = e.target.value.trim() || 'Kiria'; save(); toast('Prénom enregistré'); }
@@ -584,11 +599,11 @@ function openAdd(replaceId) {
     res.innerHTML = '<div class="spin"></div>';
     try {
       const items = await searchBooks(term, ctrl.signal, !!S.settings.frOnly);
-      if (!items.length) { res.innerHTML = `<div class="empty" style="padding:24px">Aucun livre trouvé.${S.settings.frOnly ? ' Essaie « Toutes les langues ».' : ''}</div>`; return; }
+      if (!items.length) { res.innerHTML = `<div class="empty" style="padding:24px">Aucun livre trouvé.${S.settings.frOnly ? ' Essaie « Toutes les langues ».' : ''}<div class="small" style="margin-top:8px">BnF ${esc(searchInfo.bnf || '')}</div></div>`; return; }
       res.innerHTML = items.map((b, i) => `<div class="result" data-i="${i}">${coverHTML(b, 'c-sm')}<div class="info"><div class="title" style="font-size:15px">${esc(b.title)}</div>
         <div class="author">${esc(b.author || 'Auteur inconnu')}</div>
         <div class="muted small">${[langBadge(b.lang), b.publisher && esc(b.publisher.slice(0, 24)), b.year, b.pages ? b.pages + ' p.' : '', b.source === 'BnF' ? '📚 BnF' : ''].filter(Boolean).join(' · ')}</div></div>
-        <span class="muted" style="font-size:22px;padding:0 6px">›</span></div>`).join('');
+        <span class="muted" style="font-size:22px;padding:0 6px">›</span></div>`).join('') + `<div class="muted small" style="text-align:center;margin:8px 0 4px">Sources : Google · BnF ${esc(searchInfo.bnf || '')}</div>`;
       res.querySelectorAll('.result').forEach(r => r.onclick = () => previewResult(items[r.dataset.i], target));
     } catch (e) {
       if (e.name === 'AbortError') return;
@@ -640,6 +655,7 @@ async function searchBooks(term, signal, frOnly) {
   const q = encodeURIComponent(isIsbn ? 'isbn:' + isbn : term);
   const base = 'https://www.googleapis.com/books/v1/volumes?maxResults=30&printType=books&q=' + q;
   const get = async u => { try { const d = await (await fetch(u, { signal })).json(); return (d.items || []).map(gbMap).filter(b => b.title); } catch (e) { if (e.name === 'AbortError') throw e; return null; } };
+  searchInfo.bnf = '…';
   const bnf = bnfSearch(term, isIsbn, signal).catch(e => { if (e.name === 'AbortError') throw e; return null; });
   const [fr, all, bn] = await Promise.all([get(base + '&langRestrict=fr'), (frOnly || isIsbn) ? Promise.resolve([]) : get(base), bnf]);
   let out = [];

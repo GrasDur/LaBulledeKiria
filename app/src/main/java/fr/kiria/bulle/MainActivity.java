@@ -33,6 +33,7 @@ public class MainActivity extends Activity {
 
     private static final String START_URL = "https://appassets.androidplatform.net/assets/index.html";
     private WebView webView;
+    private String userAgent = "Mozilla/5.0 (Linux; Android) LaBulleDeKiria";
 
     @SuppressLint("SetJavaScriptEnabled")
     @Override
@@ -58,6 +59,7 @@ public class MainActivity extends Activity {
                 .build();
 
         WebSettings s = webView.getSettings();
+        try { userAgent = WebSettings.getDefaultUserAgent(this); } catch (Exception ignored) { }
         s.setJavaScriptEnabled(true);
         s.setDomStorageEnabled(true);
         s.setDatabaseEnabled(true);
@@ -135,7 +137,7 @@ public class MainActivity extends Activity {
     }
 
     /** Petites fonctions natives accessibles depuis la page (window.KiriaAndroid). */
-    private class Bridge {
+    public class Bridge {
         @JavascriptInterface
         public void share(String subject, String text) {
             runOnUiThread(() -> {
@@ -153,6 +155,7 @@ public class MainActivity extends Activity {
             new Thread(() -> {
                 int code = 0;
                 String body = null;
+                String err = "";
                 HttpURLConnection c = null;
                 try {
                     URL u = new URL(url);
@@ -163,7 +166,9 @@ public class MainActivity extends Activity {
                     c = (HttpURLConnection) u.openConnection();
                     c.setConnectTimeout(10000);
                     c.setReadTimeout(15000);
-                    c.setRequestProperty("User-Agent", "LaBulleDeKiria/1.2 (Android)");
+                    c.setRequestProperty("User-Agent", userAgent);
+                    c.setRequestProperty("Accept", "application/xml,text/xml,application/json,*/*");
+                    c.setInstanceFollowRedirects(true);
                     code = c.getResponseCode();
                     InputStream in = code >= 400 ? c.getErrorStream() : c.getInputStream();
                     if (in != null) {
@@ -176,11 +181,13 @@ public class MainActivity extends Activity {
                     }
                 } catch (Exception e) {
                     code = 0;
+                    body = null;
+                    err = e.getClass().getSimpleName() + ": " + e.getMessage();
                 } finally {
                     if (c != null) c.disconnect();
                 }
                 final String js = "window.__kiriaHttp(" + JSONObject.quote(id) + "," + code + ","
-                        + (body == null ? "null" : JSONObject.quote(body)) + ")";
+                        + (body == null ? "null" : JSONObject.quote(body)) + "," + JSONObject.quote(err) + ")";
                 runOnUiThread(() -> { if (webView != null) webView.evaluateJavascript(js, null); });
             }).start();
         }
