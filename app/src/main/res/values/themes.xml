@@ -1,0 +1,6 @@
+<resources>
+    <style name="Theme.Bulle" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/bulle_bg</item>
+        <item name="android:colorAccent">#8B5CF6</item>
+    </style>
+</resources>
