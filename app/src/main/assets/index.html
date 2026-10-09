@@ -96,7 +96,7 @@ h1,h2,h3{margin:0}
 .page-h{padding:24px 0 12px;display:flex;align-items:center;justify-content:space-between}
 .page-h h1{font-family:var(--serif);font-size:28px}
 .seg{display:flex;background:var(--surface-2);border-radius:16px;padding:4px;gap:4px}
-.seg button{flex:1;padding:9px 6px;border-radius:12px;font-weight:650;font-size:13.5px;color:var(--muted)}
+.seg button{flex:1;padding:9px 2px;border-radius:12px;font-weight:650;font-size:12.5px;white-space:nowrap;color:var(--muted)}
 .seg button.on{background:var(--surface);color:var(--ink);box-shadow:0 2px 8px rgba(0,0,0,.08)}
 .seg .n{font-size:11.5px;opacity:.8;margin-left:3px}
 .search{display:flex;align-items:center;gap:8px;background:var(--surface);border:1.5px solid var(--line);border-radius:16px;padding:0 14px;margin:12px 0}
@@ -161,13 +161,14 @@ svg text{fill:var(--muted);font-family:var(--font)}
 
 .detail-top{display:flex;gap:16px;align-items:flex-end;margin-bottom:16px}
 .detail-top h2{font-family:var(--serif);font-size:22px;line-height:1.2}
-.pills{display:flex;gap:8px;margin:14px 0}
-.pills button{flex:1;padding:10px 4px;border-radius:14px;background:var(--surface);border:1.5px solid var(--line);font-weight:650;font-size:13px}
+.pills{display:flex;gap:6px;margin:14px 0}
+.pills button{flex:1;padding:10px 2px;white-space:nowrap;border-radius:14px;background:var(--surface);border:1.5px solid var(--line);font-weight:650;font-size:13px}
 .pills button.on{border-color:var(--primary);background:var(--primary-soft);color:var(--primary)}
 .desc{font-size:14.5px;line-height:1.55;color:var(--muted);display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}
 .desc.open{-webkit-line-clamp:unset;display:block}
 .hist{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--line);font-size:14px}
 .hist:last-child{border:0}
+.hist>.cover{width:40px;height:60px;border-radius:6px}
 .hist .dot{width:34px;height:34px;border-radius:50%;background:var(--primary-soft);color:var(--primary);display:flex;align-items:center;justify-content:center;font-size:15px;flex:none}
 .rate button{font-size:30px;color:var(--line);padding:0 2px}
 .rate button.on{color:#F5B301}
@@ -334,6 +335,23 @@ function coverHTML(b, cls) {
   return `<div class="cover ${cls}">${ph}${img}</div>`;
 }
 
+/* ---------- PAL & Wishlist ---------- */
+const STATUS = { wish: '💫 Wishlist', toread: '🫧 PAL', reading: '📖 En cours', read: '🏁 Lu' };
+function palList() { return S.books.filter(b => b.status === 'toread').sort((a, b) => (a.palOrder ?? a.addedAt) - (b.palOrder ?? b.addedAt)); }
+function palNext() { return Math.max(0, ...S.books.filter(b => b.status === 'toread').map(b => b.palOrder || 0)) + 1; }
+function movePal(id, dir) {
+  const l = palList(); l.forEach((b, i) => b.palOrder = i + 1);
+  const i = l.findIndex(b => b.id === id), j = i + dir; if (i < 0 || j < 0 || j >= l.length) return;
+  [l[i].palOrder, l[j].palOrder] = [l[j].palOrder, l[i].palOrder]; save(); render();
+}
+function daysUntil(d) { if (!d) return null; const t = new Date(d + 'T00:00:00'); const n = new Date(); n.setHours(0, 0, 0, 0); return Math.round((t - n) / 864e5); }
+function releaseLabel(b) {
+  const n = daysUntil(b.releaseDate); if (n === null) return 'Date de sortie inconnue';
+  if (n > 1) return `Sort dans ${n} jours · ${fmtDate(b.releaseDate + 'T00:00:00', { day: 'numeric', month: 'long', year: 'numeric' })}`;
+  if (n === 1) return 'Sort demain !'; if (n === 0) return 'Sort aujourd’hui ! 🎉';
+  return 'Déjà disponible depuis le ' + fmtDate(b.releaseDate + 'T00:00:00', { day: 'numeric', month: 'long', year: 'numeric' });
+}
+
 /* ---------- Statistiques ---------- */
 function dayTotals() {
   const m = {};
@@ -380,7 +398,8 @@ function viewHome() {
   const today = dayTotals()[dayKey()] || { pages: 0, sec: 0 };
   const goal = +S.settings.dailyGoal || 20;
   const reading = S.books.filter(b => b.status === 'reading').sort((a, b) => (b.lastReadAt || b.addedAt) - (a.lastReadAt || a.addedAt));
-  const toread = S.books.filter(b => b.status === 'toread');
+  const toread = palList();
+  const wish = S.books.filter(b => b.status === 'wish').sort((a, b) => (a.releaseDate || '9999').localeCompare(b.releaseDate || '9999'));
   const st = streak();
   const hour = new Date().getHours();
   const hello = hour < 5 ? 'Bonne nuit' : hour < 18 ? 'Bonjour' : 'Bonsoir';
@@ -407,8 +426,16 @@ function viewHome() {
   }
   h += `</section>`;
   if (toread.length) {
-    h += `<section class="section"><div class="section-h"><h2>À lire ensuite</h2><button class="link" data-go="library" data-filter="toread">Tout voir</button></div><div class="hscroll">`;
-    for (const b of toread.slice(0, 10)) h += `<div class="mini" data-open="${b.id}">${coverHTML(b, '')}<div class="t">${esc(b.title)}</div></div>`;
+    h += `<section class="section"><div class="section-h"><h2>Ma PAL</h2><button class="link" data-go="library" data-filter="toread">Tout voir</button></div><div class="hscroll">`;
+    toread.slice(0, 10).forEach((b, i) => h += `<div class="mini" data-open="${b.id}">${coverHTML(b, '')}<div class="t">${i + 1}. ${esc(b.title)}</div></div>`);
+    h += `</div></section>`;
+  }
+  if (wish.length) {
+    h += `<section class="section"><div class="section-h"><h2>Prochaines sorties</h2><button class="link" data-go="library" data-filter="wish">Wishlist</button></div><div class="card">`;
+    for (const b of wish.slice(0, 4)) {
+      const n = daysUntil(b.releaseDate);
+      h += `<div class="hist" data-open="${b.id}">${coverHTML(b, '')}<div style="flex:1;min-width:0"><div style="font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(b.title)}</div><div class="muted small">${releaseLabel(b)}</div></div>${n !== null && n >= 0 ? `<span class="chip a">J-${n}</span>` : ''}</div>`;
+    }
     h += `</div></section>`;
   }
   const recent = [...S.logs].sort((a, b) => b.at - a.at).slice(0, 4);
@@ -427,24 +454,33 @@ function histRow(l, title) {
 
 /* ---------- Bibliothèque ---------- */
 function viewLibrary() {
-  const counts = { reading: 0, toread: 0, read: 0 }; S.books.forEach(b => counts[b.status]++);
+  const counts = { reading: 0, toread: 0, wish: 0, read: 0 }; S.books.forEach(b => counts[b.status]++);
   const q = libQuery.trim().toLowerCase();
   let list = S.books.filter(b => b.status === libFilter && (!q || (b.title + ' ' + (b.author || '')).toLowerCase().includes(q)));
-  list.sort((a, b) => libFilter === 'read' ? (b.finishedAt || 0) - (a.finishedAt || 0) : (b.lastReadAt || b.addedAt) - (a.lastReadAt || a.addedAt));
-  const lbl = { reading: 'En cours', toread: 'À lire', read: 'Lus' };
+  if (libFilter === 'toread') list = palList().filter(b => list.includes(b));
+  else if (libFilter === 'wish') list.sort((a, b) => (a.releaseDate || '9999').localeCompare(b.releaseDate || '9999'));
+  else list.sort((a, b) => libFilter === 'read' ? (b.finishedAt || 0) - (a.finishedAt || 0) : (b.lastReadAt || b.addedAt) - (a.lastReadAt || a.addedAt));
+  const lbl = { reading: 'En cours', toread: 'PAL', wish: 'Wishlist', read: 'Lus' };
   let h = `<div class="page-h"><h1>Bibliothèque</h1><span class="chip p">${S.books.length} livre${S.books.length > 1 ? 's' : ''}</span></div>
     <div class="seg">${Object.keys(lbl).map(k => `<button class="${k === libFilter ? 'on' : ''}" onclick="libFilter='${k}';render()">${lbl[k]}<span class="n">${counts[k]}</span></button>`).join('')}</div>
     <label class="search"><span class="muted">🔍</span><input id="libq" placeholder="Filtrer par titre ou auteur" value="${esc(libQuery)}"></label>`;
   if (!list.length) {
-    const msg = { reading: 'Aucune lecture en cours', toread: 'Ta pile à lire est vide', read: 'Aucun livre terminé pour l’instant' }[libFilter];
+    const msg = { reading: 'Aucune lecture en cours', toread: 'Ta PAL est vide', wish: 'Ta wishlist est vide', read: 'Aucun livre terminé pour l’instant' }[libFilter];
     h += `<div class="empty"><div class="bubble">${libFilter === 'read' ? '🏆' : '🫧'}</div><h3>${q ? 'Aucun résultat' : msg}</h3>${q ? '' : '<button class="btn accent" onclick="openAdd()" style="margin-top:8px">＋ Ajouter un livre</button>'}</div>`;
+  } else if (libFilter === 'toread') {
+    h += `<p class="muted small" style="margin:0 0 10px">Ta pile à lire, dans l’ordre où tu veux les lire. Utilise ↑ ↓ pour la réorganiser.</p><div class="card">` + list.map((b, i) => `<div class="hist" data-open="${b.id}">
+      <b style="width:22px;text-align:center;color:var(--primary)">${i + 1}</b>${coverHTML(b, '')}
+      <div style="flex:1;min-width:0"><div style="font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(b.title)}</div><div class="muted small">${esc(b.author || '')}</div></div>
+      <button class="btn sm" data-mv="-1" data-id="${b.id}" ${i === 0 ? 'disabled style="opacity:.3"' : ''}>↑</button><button class="btn sm" data-mv="1" data-id="${b.id}" ${i === list.length - 1 ? 'disabled style="opacity:.3"' : ''}>↓</button></div>`).join('') + `</div>`;
   } else {
     h += `<div class="grid">` + list.map(b => `<div class="gitem" data-open="${b.id}">${coverHTML(b, '')}
       <div class="t">${esc(b.title)}</div><div class="a">${esc(b.author || '')}</div>
       ${b.status === 'reading' ? `<div class="bar"><i style="width:${pct(b)}%"></i></div>` : ''}
-      ${b.status === 'read' && b.rating ? `<div class="stars">${'★'.repeat(b.rating)}</div>` : ''}</div>`).join('') + `</div>`;
+      ${b.status === 'read' && b.rating ? `<div class="stars">${'★'.repeat(b.rating)}</div>` : ''}
+      ${b.status === 'wish' ? `<div class="a" style="color:var(--accent);font-weight:650">${daysUntil(b.releaseDate) > 0 ? 'J-' + daysUntil(b.releaseDate) : (b.releaseDate ? 'Disponible' : '💫')}</div>` : ''}</div>`).join('') + `</div>`;
   }
   setTimeout(() => {
+    document.querySelectorAll('[data-mv]').forEach(x => x.onclick = e => { e.stopPropagation(); movePal(x.dataset.id, +x.dataset.mv); });
     const i = document.getElementById('libq'); if (!i) return;
     i.oninput = () => { libQuery = i.value; const pos = i.selectionStart; render(); const n = document.getElementById('libq'); n.focus(); n.setSelectionRange(pos, pos); };
   });
@@ -527,7 +563,7 @@ function viewMe() {
       <p class="muted small" style="margin-top:0">Tout est enregistré sur ton téléphone. Exporte une sauvegarde de temps en temps pour ne rien perdre.</p>
       <div class="row" style="gap:10px"><button class="btn primary" style="flex:1" onclick="exportData()">⬆ Exporter</button><button class="btn" style="flex:1" onclick="openImport()">⬇ Importer</button></div>
     </div></div>
-  <div class="section" style="text-align:center"><div class="muted small">La Bulle de Kiria · v1.3<br>Données livres : BnF, Google Books & Open Library</div></div>`;
+  <div class="section" style="text-align:center"><div class="muted small">La Bulle de Kiria · v1.4<br>Données livres : BnF, Google Books & Open Library</div></div>`;
 }
 document.addEventListener('change', e => {
   if (e.target.id === 'set-name') { S.settings.name = e.target.value.trim() || 'Kiria'; save(); toast('Prénom enregistré'); }
@@ -602,8 +638,8 @@ function openAdd(replaceId) {
       if (!items.length) { res.innerHTML = `<div class="empty" style="padding:24px">Aucun livre trouvé.${S.settings.frOnly ? ' Essaie « Toutes les langues ».' : ''}<div class="small" style="margin-top:8px">BnF ${esc(searchInfo.bnf || '')}</div></div>`; return; }
       res.innerHTML = items.map((b, i) => `<div class="result" data-i="${i}">${coverHTML(b, 'c-sm')}<div class="info"><div class="title" style="font-size:15px">${esc(b.title)}</div>
         <div class="author">${esc(b.author || 'Auteur inconnu')}</div>
-        <div class="muted small">${[langBadge(b.lang), b.publisher && esc(b.publisher.slice(0, 24)), b.year, b.pages ? b.pages + ' p.' : '', b.source === 'BnF' ? '📚 BnF' : ''].filter(Boolean).join(' · ')}</div></div>
-        <span class="muted" style="font-size:22px;padding:0 6px">›</span></div>`).join('') + `<div class="muted small" style="text-align:center;margin:8px 0 4px">Sources : Google · BnF ${esc(searchInfo.bnf || '')}</div>`;
+        <div class="muted small">${[b.langSure || b.lang !== 'fr' ? langBadge(b.lang) : '🇫🇷 FR ?', b.publisher && esc(b.publisher.slice(0, 24)), b.year, b.pages ? b.pages + ' p.' : '', b.source === 'BnF' ? '📚 BnF' : ''].filter(Boolean).join(' · ')}</div></div>
+        <span class="muted" style="font-size:22px;padding:0 6px">›</span></div>`).join('') + `<div class="muted small" style="text-align:center;margin:8px 0 4px">${esc(searchInfo.sources || '')}</div>`;
       res.querySelectorAll('.result').forEach(r => r.onclick = () => previewResult(items[r.dataset.i], target));
     } catch (e) {
       if (e.name === 'AbortError') return;
@@ -629,7 +665,7 @@ function previewResult(data, target) {
   sh.querySelector('#pv-back').onclick = closeSheet;
   sh.querySelector('#pv-go').onclick = () => {
     if (target) {
-      const keep = { id: target.id, status: target.status, currentPage: target.currentPage, rating: target.rating, notes: target.notes, addedAt: target.addedAt, startedAt: target.startedAt, finishedAt: target.finishedAt, lastReadAt: target.lastReadAt };
+      const keep = { id: target.id, status: target.status, currentPage: target.currentPage, rating: target.rating, notes: target.notes, addedAt: target.addedAt, startedAt: target.startedAt, finishedAt: target.finishedAt, lastReadAt: target.lastReadAt, palOrder: target.palOrder, releaseDate: target.releaseDate };
       ['title', 'author', 'pages', 'cover', 'cover2', 'year', 'publisher', 'isbn', 'description', 'genre', 'lang'].forEach(k => target[k] = data[k] ?? '');
       Object.assign(target, keep);
       if (target.pages && target.currentPage > target.pages) target.currentPage = target.pages;
@@ -641,56 +677,87 @@ function previewResult(data, target) {
   };
 }
 
+/* La langue réelle d'une édition se lit dans son ISBN (978-2 / 979-10 = édition francophone) */
+function isbn13(s) {
+  s = String(s || '').replace(/[^0-9Xx]/g, '');
+  if (s.length === 10) { const b = '978' + s.slice(0, 9); let sum = 0; for (let i = 0; i < 12; i++) sum += (+b[i]) * (i % 2 ? 3 : 1); return b + ((10 - sum % 10) % 10); }
+  return s.length === 13 ? s : '';
+}
+function isbnLang(s) {
+  const i = isbn13(s); if (!i) return '';
+  if (i.startsWith('9782') || i.startsWith('97910')) return 'fr';
+  if (i.startsWith('9780') || i.startsWith('9781')) return 'en';
+  if (i.startsWith('9783')) return 'de';
+  if (i.startsWith('97884')) return 'es';
+  if (i.startsWith('97888') || i.startsWith('97912')) return 'it';
+  if (i.startsWith('97890') || i.startsWith('97894')) return 'nl';
+  return '';
+}
 function gbMap(it) {
   const v = it.volumeInfo || {}; const ids = v.industryIdentifiers || [];
   const im = v.imageLinks || {};
   const cover = (im.thumbnail || im.smallThumbnail || '').replace('http://', 'https://').replace('&edge=curl', '');
-  return { key: it.id, title: v.title + (v.subtitle && v.title.length < 30 ? ' – ' + v.subtitle : ''), author: (v.authors || []).join(', '), pages: v.pageCount || 0,
-    cover, year: (v.publishedDate || '').slice(0, 4), publisher: v.publisher || '', isbn: (ids.find(i => i.type === 'ISBN_13') || ids[0] || {}).identifier || '',
-    description: v.description || '', genre: (v.categories || [])[0] || '', lang: v.language || '' };
+  const raw = (ids.find(i => i.type === 'ISBN_13') || ids.find(i => i.type === 'ISBN_10') || {}).identifier || '';
+  return { key: 'g' + it.id, title: v.title + (v.subtitle && v.title.length < 30 ? ' – ' + v.subtitle : ''), author: (v.authors || []).join(', '), pages: v.pageCount || 0,
+    cover, year: (v.publishedDate || '').slice(0, 4), publisher: v.publisher || '', isbn: isbn13(raw) || raw,
+    description: v.description || '', genre: (v.categories || [])[0] || '', lang: v.language || '', source: 'Google' };
+}
+function olMap(x) {
+  const e = (x.editions && x.editions.docs && x.editions.docs[0]) || {};
+  const isbn = ((e.isbn || x.isbn || []).map(isbn13).filter(Boolean))[0] || '';
+  const langs = e.language || x.language || [];
+  const cov = e.cover_i || x.cover_i;
+  return { key: 'o' + (e.key || x.key), title: e.title || x.title, author: (x.author_name || []).join(', '), pages: e.number_of_pages_median || x.number_of_pages_median || 0,
+    cover: cov ? `https://covers.openlibrary.org/b/id/${cov}-M.jpg` : (isbn ? `https://covers.openlibrary.org/b/isbn/${isbn}-M.jpg?default=false` : ''),
+    year: ((e.publish_date || [])[0] || '').match(/\d{4}/)?.[0] || (x.first_publish_year ? String(x.first_publish_year) : ''),
+    publisher: (e.publisher || x.publisher || [])[0] || '', isbn, description: '',
+    lang: langs.includes('fre') ? 'fr' : (langs.includes('eng') ? 'en' : ''), source: 'Open Library' };
 }
 async function searchBooks(term, signal, frOnly) {
-  const isbn = term.replace(/[-\s]/g, '');
-  const isIsbn = /^(\d{9}[\dXx]|\d{13})$/.test(isbn);
-  const q = encodeURIComponent(isIsbn ? 'isbn:' + isbn : term);
-  const base = 'https://www.googleapis.com/books/v1/volumes?maxResults=30&printType=books&q=' + q;
-  const get = async u => { try { const d = await (await fetch(u, { signal })).json(); return (d.items || []).map(gbMap).filter(b => b.title); } catch (e) { if (e.name === 'AbortError') throw e; return null; } };
+  const rawIsbn = term.replace(/[-\s]/g, '');
+  const isIsbn = /^(\d{9}[\dXx]|\d{13})$/.test(rawIsbn);
+  const q = encodeURIComponent(isIsbn ? 'isbn:' + rawIsbn : term);
+  const gbase = 'https://www.googleapis.com/books/v1/volumes?maxResults=40&printType=books&q=' + q;
+  const ol = 'https://openlibrary.org/search.json?limit=20&lang=fr&fields=key,title,author_name,first_publish_year,number_of_pages_median,cover_i,isbn,publisher,language,editions,editions.key,editions.title,editions.isbn,editions.publisher,editions.language,editions.cover_i,editions.number_of_pages_median,editions.publish_date&'
+    + (isIsbn ? 'isbn=' + rawIsbn : 'q=' + encodeURIComponent(term));
+  const soft = p => p.catch(e => { if (e.name === 'AbortError') throw e; return null; });
+  const gget = u => soft(fetch(u, { signal }).then(r => r.json()).then(d => (d.items || []).map(gbMap)));
   searchInfo.bnf = '…';
-  const bnf = bnfSearch(term, isIsbn, signal).catch(e => { if (e.name === 'AbortError') throw e; return null; });
-  const [fr, all, bn] = await Promise.all([get(base + '&langRestrict=fr'), (frOnly || isIsbn) ? Promise.resolve([]) : get(base), bnf]);
-  let out = [];
-  const seen = new Set();
-  const push = b => { const k = b.isbn || b.key; if (seen.has(k)) return; seen.add(k); out.push(b); };
-  (fr || []).filter(b => !b.lang || b.lang === 'fr' || isIsbn).forEach(push);
-  // Éditions françaises de la BnF, en complétant avec la couverture/résumé Google si même ISBN
-  (bn || []).filter(b => !frOnly || b.lang === 'fr').forEach(b => {
-    const g = (all || []).concat(fr || []).find(x => x.isbn && x.isbn === b.isbn);
-    if (g) { b.cover = g.cover || b.cover; b.description = g.description; b.genre = g.genre; b.pages = b.pages || g.pages; }
-    push(b);
-  });
-  if (isIsbn) (fr || []).forEach(push);
-  (all || []).sort((a, b) => (b.lang === 'fr') - (a.lang === 'fr')).forEach(b => { if (!frOnly || b.lang === 'fr') push(b); });
-  // On met en avant les éditions avec couverture et nombre de pages
-  const words = term.toLowerCase().split(/\s+/).filter(w => w.length > 2);
-  const hit = b => words.filter(w => (b.title + ' ' + b.author).toLowerCase().includes(w)).length / (words.length || 1);
-  out = out.map((b, i) => ({ b, s: (b.lang === 'fr' ? 100 : 0) + hit(b) * 60 + (b.cover ? 10 : 0) + (b.pages ? 5 : 0) + (+b.year > 2000 ? 3 : 0) - i * .3 })).sort((x, y) => y.s - x.s).map(x => x.b);
-  if (out.length < 3) {
-    try {
-      const u = 'https://openlibrary.org/search.json?limit=20&fields=title,author_name,number_of_pages_median,cover_i,first_publish_year,isbn,publisher,language&' + (isIsbn ? 'isbn=' + isbn : 'q=' + encodeURIComponent(term)) + (frOnly ? '&language=fre' : '');
-      const d = await (await fetch(u, { signal })).json();
-      (d.docs || []).map(x => ({ title: x.title, author: (x.author_name || []).join(', '), pages: x.number_of_pages_median || 0,
-        cover: x.cover_i ? `https://covers.openlibrary.org/b/id/${x.cover_i}-M.jpg` : '', year: x.first_publish_year ? String(x.first_publish_year) : '',
-        publisher: (x.publisher || [])[0] || '', isbn: (x.isbn || [])[0] || '', description: '', lang: (x.language || []).includes('fre') ? 'fr' : ((x.language || [])[0] === 'eng' ? 'en' : '') }))
-        .sort((a, b) => (b.lang === 'fr') - (a.lang === 'fr')).forEach(push);
-    } catch (e) { if (e.name === 'AbortError') throw e; if (!out.length && fr === null) throw e; }
+  const [gfr, gall, olr, bn] = await Promise.all([
+    gget(gbase + '&langRestrict=fr'), gget(gbase),
+    soft(fetch(ol, { signal }).then(r => r.json()).then(d => (d.docs || []).map(olMap))),
+    soft(bnfSearch(term, isIsbn, signal))]);
+  if (!gfr && !gall && !olr && !bn) throw new Error('offline');
+
+  // Fusion : une seule fiche par ISBN, en gardant le meilleur de chaque source
+  const byKey = new Map();
+  for (const b of [...(bn || []), ...(gfr || []), ...(gall || []), ...(olr || [])]) {
+    if (!b.title) continue;
+    b.isbn = isbn13(b.isbn) || b.isbn || '';
+    const il = isbnLang(b.isbn);
+    b.langSure = !!il || b.source === 'BnF';
+    if (il) b.lang = il;
+    const k = b.isbn || b.key;
+    const prev = byKey.get(k);
+    if (!prev) { byKey.set(k, b); continue; }
+    for (const f of ['cover', 'description', 'genre', 'pages', 'publisher', 'year', 'author']) if (!prev[f] && b[f]) prev[f] = b[f];
+    if (b.source === 'Google' && b.cover && prev.source !== 'Google') prev.cover = b.cover;
   }
-  if (fr === null && all === null && bn === null && !out.length) throw new Error('offline');
-  return out;
+  let out = [...byKey.values()];
+  if (frOnly) out = out.filter(b => b.lang === 'fr');
+  const norm = s => (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  const words = norm(term).split(/[\s'’-]+/).filter(w => w.length > 2);
+  const hit = b => words.filter(w => norm(b.title + ' ' + b.author).includes(w.replace(/s$/, ''))).length / (words.length || 1);
+  out = out.map((b, i) => ({ b, s: (b.lang === 'fr' ? (b.langSure ? 100 : 50) : 0) + hit(b) * 70 + (b.cover ? 10 : 0) + (b.pages ? 4 : 0) + (b.source === 'BnF' ? 4 : 0) + (+b.year > 2000 ? 3 : 0) - i * .05 }))
+    .sort((x, y) => y.s - x.s).map(x => x.b);
+  searchInfo.sources = ['Google ' + (gall || gfr ? '✓' : '✗'), 'Open Library ' + (olr ? '✓' : '✗'), 'BnF ' + (searchInfo.bnf || '')].join(' · ');
+  return out.slice(0, 40);
 }
 function chooseStatus(data, done) {
   const sh = openSheet('Où le ranger ?', `<p class="muted" style="margin-top:0">${esc(data.title)}</p>
     <button class="btn block primary" data-s="reading" style="margin-bottom:10px">📖 Je le lis en ce moment</button>
-    <button class="btn block" data-s="toread" style="margin-bottom:10px">🫧 À lire plus tard</button>
+    <button class="btn block" data-s="toread" style="margin-bottom:10px">🫧 Dans ma PAL (je l’ai, à lire)</button>
+    <button class="btn block" data-s="wish" style="margin-bottom:10px">💫 Wishlist (envie / à paraître)</button>
     <button class="btn block" data-s="read">🏁 Déjà lu</button>`);
   sh.querySelectorAll('[data-s]').forEach(b => b.onclick = () => {
     addBook(data, b.dataset.s); closeSheet(); done && done();
@@ -699,10 +766,12 @@ function chooseStatus(data, done) {
 function addBook(data, status) {
   const now = Date.now();
   const b = Object.assign({ id: uid(), title: '', author: '', pages: 0, cover: '', currentPage: 0, rating: 0, notes: '' }, data,
-    { status, addedAt: now, startedAt: status !== 'toread' ? now : null, finishedAt: status === 'read' ? now : null });
+    { status, addedAt: now, startedAt: (status === 'reading' || status === 'read') ? now : null, finishedAt: status === 'read' ? now : null });
+  if (status === 'toread') b.palOrder = palNext();
+  if (status === 'wish' && !b.releaseDate && b.year && +b.year > new Date().getFullYear()) b.releaseDate = b.year + '-01-01';
   if (status === 'read') b.currentPage = b.pages;
   S.books.push(b); save(); render();
-  toast(status === 'reading' ? 'Bonne lecture ! 📖' : status === 'read' ? 'Ajouté à tes lectures ✓' : 'Ajouté à ta pile à lire 🫧');
+  toast({ reading: 'Bonne lecture ! 📖', read: 'Ajouté à tes lectures ✓', toread: 'Ajouté à ta PAL 🫧', wish: 'Ajouté à ta wishlist 💫' }[status]);
   return b;
 }
 
@@ -743,7 +812,12 @@ function openBook(id) {
       ${b.startedAt ? `<div class="muted small">Commencé le ${fmtDate(b.startedAt, { day: 'numeric', month: 'long' })}</div>` : ''}</div></div>
       <div class="row" style="margin-top:12px;gap:10px"><button class="btn accent" style="flex:1;padding:13px" data-session="${b.id}">▶ Démarrer une session</button><button class="btn" style="padding:13px" data-progress="${b.id}">＋ Pages</button></div>`;
   } else if (b.status === 'toread') {
-    main = `<button class="btn accent block" id="d-start">📖 Commencer la lecture</button>`;
+    const pos = palList().findIndex(x => x.id === b.id) + 1;
+    main = `<div class="muted small" style="text-align:center;margin-bottom:10px">N° ${pos} dans ta PAL</div><button class="btn accent block" id="d-start">📖 Commencer la lecture</button>`;
+  } else if (b.status === 'wish') {
+    main = `<div class="card"><div class="field" style="margin-bottom:8px"><label>Date de sortie (facultatif)</label><input id="d-release" type="date" value="${esc(b.releaseDate || '')}"></div>
+      <div class="muted small" id="d-rel-lbl">${releaseLabel(b)}</div></div>
+      <button class="btn accent block" style="margin-top:12px" id="d-got">🛒 Je l’ai ! → dans ma PAL</button>`;
   } else {
     main = `<div class="card" style="text-align:center"><div class="muted small" style="font-weight:600">Ta note</div>
       <div class="rate" id="d-rate">${[1, 2, 3, 4, 5].map(n => `<button data-r="${n}" class="${n <= (b.rating || 0) ? 'on' : ''}">★</button>`).join('')}</div>
@@ -753,7 +827,7 @@ function openBook(id) {
     <div class="detail-top">${coverHTML(b, 'c-lg')}<div style="min-width:0"><h2>${esc(b.title)}</h2><div class="muted" style="margin-top:6px">${esc(b.author || 'Auteur inconnu')}</div>
       ${b.isbn ? `<div class="muted small" style="margin-top:4px">ISBN ${esc(b.isbn)}</div>` : ''}</div></div>
     <div class="chips">${chips}</div>
-    <div class="pills">${[['toread', '🫧 À lire'], ['reading', '📖 En cours'], ['read', '🏁 Lu']].map(([k, l]) => `<button data-st="${k}" class="${b.status === k ? 'on' : ''}">${l}</button>`).join('')}</div>
+    <div class="pills">${[['wish', '💫 Wish'], ['toread', '🫧 PAL'], ['reading', '📖 En cours'], ['read', '🏁 Lu']].map(([k, l]) => `<button data-st="${k}" class="${b.status === k ? 'on' : ''}">${l}</button>`).join('')}</div>
     ${main}
     ${b.description ? `<div class="section"><div class="section-h"><h2>Résumé</h2></div><div class="desc" id="d-desc">${esc(b.description.replace(/<[^>]+>/g, ''))}</div><button class="link" id="d-more" style="margin-top:6px">Lire plus</button></div>` : ''}
     <div class="section"><div class="section-h"><h2>Mes notes</h2></div><div class="field" style="margin:0"><textarea id="d-notes" rows="3" placeholder="Citations, impressions, personnages…">${esc(b.notes || '')}</textarea></div></div>
@@ -763,6 +837,8 @@ function openBook(id) {
   sh.querySelector('.sh').style.padding = '0 18px';
   bindView(sh);
   sh.querySelectorAll('[data-st]').forEach(p => p.onclick = () => { setStatus(b, p.dataset.st); closeSheet(); setTimeout(() => openBook(id), 150); });
+  sh.querySelector('#d-release')?.addEventListener('change', e => { b.releaseDate = e.target.value; save(); render(); sh.querySelector('#d-rel-lbl').textContent = releaseLabel(b); });
+  sh.querySelector('#d-got')?.addEventListener('click', () => { setStatus(b, 'toread'); closeSheet(); toast('Ajouté à ta PAL 🫧'); setTimeout(() => openBook(id), 150); });
   sh.querySelector('#d-start')?.addEventListener('click', () => { setStatus(b, 'reading'); closeSheet(); setTimeout(() => openBook(id), 150); });
   sh.querySelectorAll('#d-rate [data-r]').forEach(s => s.onclick = () => {
     b.rating = +s.dataset.r; save(); render(); sh.querySelectorAll('#d-rate [data-r]').forEach(x => x.classList.toggle('on', +x.dataset.r <= b.rating));
@@ -783,7 +859,8 @@ function setStatus(b, st) {
   b.status = st;
   if (st === 'reading' && !b.startedAt) b.startedAt = Date.now();
   if (st === 'read') { finishBook(b, true); return; }
-  if (st === 'toread') { b.finishedAt = null; }
+  if (st === 'toread') { b.finishedAt = null; b.palOrder = palNext(); }
+  if (st === 'wish') { b.finishedAt = null; }
   if (st === 'reading') b.finishedAt = null;
   save(); render();
 }
@@ -799,7 +876,7 @@ function logProgress(b, newPage, seconds, type) {
   if (b.pages) newPage = Math.min(newPage, b.pages);
   const delta = Math.max(0, newPage - (b.currentPage || 0));
   b.currentPage = newPage; b.lastReadAt = Date.now();
-  if (b.status === 'toread') { b.status = 'reading'; b.startedAt ||= Date.now(); }
+  if (b.status === 'toread' || b.status === 'wish') { b.status = 'reading'; b.startedAt ||= Date.now(); }
   if (delta || seconds) S.logs.push({ id: uid(), bookId: b.id, type, date: dayKey(), at: Date.now(), pages: delta, seconds: Math.round(seconds || 0) });
   save();
   if (b.pages && newPage >= b.pages && b.status !== 'read') finishBook(b);

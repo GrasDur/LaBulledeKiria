@@ -149,45 +149,57 @@ public class MainActivity extends Activity {
             });
         }
 
-        /** Requête HTTP GET native (sans restriction CORS), limitée aux catalogues de livres. */
+        /** Requête HTTP GET native (sans restriction CORS), limitée aux catalogues de livres.
+         *  Plusieurs tentatives : HTTPS navigateur, HTTPS simple, puis HTTP (certains serveurs coupent la connexion). */
         @JavascriptInterface
         public void httpGet(final String id, final String url) {
             new Thread(() -> {
                 int code = 0;
                 String body = null;
-                String err = "";
-                HttpURLConnection c = null;
-                try {
-                    URL u = new URL(url);
-                    String host = u.getHost();
-                    if (!"https".equals(u.getProtocol()) || !(host.endsWith("bnf.fr") || host.endsWith("googleapis.com") || host.endsWith("openlibrary.org"))) {
-                        throw new SecurityException("hôte non autorisé");
+                StringBuilder errs = new StringBuilder();
+                String[][] attempts = {
+                        {url, userAgent},
+                        {url, null},
+                        {url.replaceFirst("^https://", "http://"), userAgent}
+                };
+                for (String[] at : attempts) {
+                    HttpURLConnection c = null;
+                    try {
+                        URL u = new URL(at[0]);
+                        String host = u.getHost();
+                        if (!(host.endsWith("bnf.fr") || host.endsWith("googleapis.com") || host.endsWith("openlibrary.org"))) {
+                            throw new SecurityException("hôte non autorisé");
+                        }
+                        c = (HttpURLConnection) u.openConnection();
+                        c.setConnectTimeout(12000);
+                        c.setReadTimeout(20000);
+                        if (at[1] != null) c.setRequestProperty("User-Agent", at[1]);
+                        c.setRequestProperty("Accept", "application/xml,text/xml,application/json,*/*");
+                        c.setRequestProperty("Accept-Language", "fr-FR,fr;q=0.9");
+                        c.setInstanceFollowRedirects(true);
+                        code = c.getResponseCode();
+                        InputStream in = code >= 400 ? c.getErrorStream() : c.getInputStream();
+                        body = null;
+                        if (in != null) {
+                            ByteArrayOutputStream out = new ByteArrayOutputStream();
+                            byte[] buf = new byte[16384];
+                            int n;
+                            while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+                            in.close();
+                            body = out.toString("UTF-8");
+                        }
+                        if (code >= 200 && code < 300) break;
+                        errs.append("HTTP ").append(code).append(" ; ");
+                    } catch (Exception e) {
+                        code = 0;
+                        body = null;
+                        errs.append(e.getClass().getSimpleName()).append(" ; ");
+                    } finally {
+                        if (c != null) c.disconnect();
                     }
-                    c = (HttpURLConnection) u.openConnection();
-                    c.setConnectTimeout(10000);
-                    c.setReadTimeout(15000);
-                    c.setRequestProperty("User-Agent", userAgent);
-                    c.setRequestProperty("Accept", "application/xml,text/xml,application/json,*/*");
-                    c.setInstanceFollowRedirects(true);
-                    code = c.getResponseCode();
-                    InputStream in = code >= 400 ? c.getErrorStream() : c.getInputStream();
-                    if (in != null) {
-                        ByteArrayOutputStream out = new ByteArrayOutputStream();
-                        byte[] buf = new byte[16384];
-                        int n;
-                        while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
-                        in.close();
-                        body = out.toString("UTF-8");
-                    }
-                } catch (Exception e) {
-                    code = 0;
-                    body = null;
-                    err = e.getClass().getSimpleName() + ": " + e.getMessage();
-                } finally {
-                    if (c != null) c.disconnect();
                 }
                 final String js = "window.__kiriaHttp(" + JSONObject.quote(id) + "," + code + ","
-                        + (body == null ? "null" : JSONObject.quote(body)) + "," + JSONObject.quote(err) + ")";
+                        + (body == null ? "null" : JSONObject.quote(body)) + "," + JSONObject.quote(errs.toString()) + ")";
                 runOnUiThread(() -> { if (webView != null) webView.evaluateJavascript(js, null); });
             }).start();
         }
