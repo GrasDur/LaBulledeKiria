@@ -256,13 +256,66 @@ function bubbles() {
   }
 }
 
+
+/* ---------- Réseau (via Android quand disponible : pas de blocage CORS) ---------- */
+const pendingHttp = {};
+window.__kiriaHttp = (id, code, body) => {
+  const p = pendingHttp[id]; if (!p) return; delete pendingHttp[id];
+  (code >= 200 && code < 300 && body != null) ? p.res(body) : p.rej(new Error('HTTP ' + code));
+};
+function httpText(url, signal) {
+  if (window.KiriaAndroid && KiriaAndroid.httpGet) return new Promise((res, rej) => {
+    const id = uid(); pendingHttp[id] = { res, rej };
+    signal && signal.addEventListener('abort', () => { if (pendingHttp[id]) { delete pendingHttp[id]; rej(new DOMException('Annulé', 'AbortError')); } });
+    setTimeout(() => { if (pendingHttp[id]) { delete pendingHttp[id]; rej(new Error('timeout')); } }, 20000);
+    KiriaAndroid.httpGet(id, url);
+  });
+  return fetch(url, { signal }).then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); });
+}
+
+/* ---------- Catalogue BnF (toutes les éditions publiées en France) ---------- */
+const DC = 'http://purl.org/dc/elements/1.1/';
+function bnfParse(xml) {
+  const doc = new DOMParser().parseFromString(xml, 'application/xml');
+  const recs = [...doc.getElementsByTagNameNS('*', 'dc')];
+  return recs.map(r => {
+    const all = n => [...r.getElementsByTagNameNS(DC, n)].map(e => e.textContent.trim());
+    const one = n => all(n)[0] || '';
+    let title = one('title').split(' / ')[0].replace(/\[[^\]]*\]/g, '').replace(/\s+:\s+roman$/i, '').trim();
+    const author = all('creator').map(c => {
+      c = c.split(/\.\s/)[0].replace(/\([^)]*\)/g, '').trim().replace(/\.$/, '');
+      const [last, first] = c.split(',').map(x => x && x.trim());
+      return first ? first + ' ' + last : last;
+    }).filter(Boolean).join(', ');
+    const fmt = all('format').join(' ');
+    const pages = +((fmt.match(/(\d+)\s*p\./) || [])[1] || 0);
+    const isbn = ((all('identifier').find(x => /ISBN/i.test(x)) || '').match(/[\dXx-]{10,17}/) || [''])[0].replace(/-/g, '');
+    const ark = ((all('identifier').find(x => /ark:/.test(x)) || '').match(/ark:\/12148\/\w+/) || [''])[0];
+    const publisher = (one('publisher').split(' : ')[0] || '').replace(/\s*\([^)]*\)\s*/g, ' ').trim();
+    const year = (one('date').match(/\d{4}/) || [''])[0];
+    const lang = all('language').some(l => /^fre|^fra|fran/i.test(l)) ? 'fr' : (all('language').some(l => /^eng|angl/i.test(l)) ? 'en' : '');
+    const type = all('type').join(' ').toLowerCase();
+    return { key: ark || isbn || title, title, author, pages, isbn, publisher, year, lang, description: '', source: 'BnF', type,
+      cover: isbn ? `https://covers.openlibrary.org/b/isbn/${isbn}-M.jpg?default=false` : '',
+      cover2: ark ? `https://catalogue.bnf.fr/couverture?&appName=NE&idArk=${ark}&couverture=1` : '' };
+  }).filter(b => b.title && !/sonore|vidéo|musique|partition/.test(b.type));
+}
+async function bnfSearch(term, isIsbn, signal) {
+  const clean = term.replace(/"/g, ' ').trim();
+  const cql = isIsbn ? `bib.isbn all "${clean.replace(/[-\s]/g, '')}"` : `bib.anywhere all "${clean}"`;
+  const url = 'https://catalogue.bnf.fr/api/SRU?version=1.2&operation=searchRetrieve&recordSchema=dublincore&maximumRecords=25&query=' + encodeURIComponent(cql);
+  return bnfParse(await httpText(url, signal));
+}
+
 /* ---------- Couvertures ---------- */
 const PALETTES = [['#8B5CF6', '#EC4899'], ['#6366F1', '#06B6D4'], ['#F59E0B', '#EF4444'], ['#10B981', '#3B82F6'], ['#A855F7', '#6366F1'], ['#F472B6', '#FB923C']];
 function coverHTML(b, cls) {
   const h = [...(b.title || '?')].reduce((a, c) => a + c.charCodeAt(0), 0) % PALETTES.length;
   const [c1, c2] = PALETTES[h];
   const ph = `<div class="ph" style="background:linear-gradient(150deg,${c1},${c2})">${esc((b.title || '').slice(0, 40))}</div>`;
-  const img = b.cover ? `<img src="${esc(b.cover)}" alt="" loading="lazy" onerror="this.remove()" style="position:relative;z-index:1">` : '';
+  const src = b.cover || b.cover2;
+  const alt = b.cover && b.cover2 ? ` data-alt="${esc(b.cover2)}"` : '';
+  const img = src ? `<img src="${esc(src)}"${alt} alt="" loading="lazy" onerror="if(this.dataset.alt){this.src=this.dataset.alt;delete this.dataset.alt}else this.remove()" onload="if(this.naturalWidth<20)this.onerror()" style="position:relative;z-index:1">` : '';
   return `<div class="cover ${cls}">${ph}${img}</div>`;
 }
 
@@ -459,7 +512,7 @@ function viewMe() {
       <p class="muted small" style="margin-top:0">Tout est enregistré sur ton téléphone. Exporte une sauvegarde de temps en temps pour ne rien perdre.</p>
       <div class="row" style="gap:10px"><button class="btn primary" style="flex:1" onclick="exportData()">⬆ Exporter</button><button class="btn" style="flex:1" onclick="openImport()">⬇ Importer</button></div>
     </div></div>
-  <div class="section" style="text-align:center"><div class="muted small">La Bulle de Kiria · v1.1<br>Données livres : Google Books & Open Library</div></div>`;
+  <div class="section" style="text-align:center"><div class="muted small">La Bulle de Kiria · v1.2<br>Données livres : BnF, Google Books & Open Library</div></div>`;
 }
 document.addEventListener('change', e => {
   if (e.target.id === 'set-name') { S.settings.name = e.target.value.trim() || 'Kiria'; save(); toast('Prénom enregistré'); }
@@ -534,7 +587,7 @@ function openAdd(replaceId) {
       if (!items.length) { res.innerHTML = `<div class="empty" style="padding:24px">Aucun livre trouvé.${S.settings.frOnly ? ' Essaie « Toutes les langues ».' : ''}</div>`; return; }
       res.innerHTML = items.map((b, i) => `<div class="result" data-i="${i}">${coverHTML(b, 'c-sm')}<div class="info"><div class="title" style="font-size:15px">${esc(b.title)}</div>
         <div class="author">${esc(b.author || 'Auteur inconnu')}</div>
-        <div class="muted small">${[langBadge(b.lang), b.publisher && esc(b.publisher.slice(0, 24)), b.year, b.pages ? b.pages + ' p.' : ''].filter(Boolean).join(' · ')}</div></div>
+        <div class="muted small">${[langBadge(b.lang), b.publisher && esc(b.publisher.slice(0, 24)), b.year, b.pages ? b.pages + ' p.' : '', b.source === 'BnF' ? '📚 BnF' : ''].filter(Boolean).join(' · ')}</div></div>
         <span class="muted" style="font-size:22px;padding:0 6px">›</span></div>`).join('');
       res.querySelectorAll('.result').forEach(r => r.onclick = () => previewResult(items[r.dataset.i], target));
     } catch (e) {
@@ -562,7 +615,7 @@ function previewResult(data, target) {
   sh.querySelector('#pv-go').onclick = () => {
     if (target) {
       const keep = { id: target.id, status: target.status, currentPage: target.currentPage, rating: target.rating, notes: target.notes, addedAt: target.addedAt, startedAt: target.startedAt, finishedAt: target.finishedAt, lastReadAt: target.lastReadAt };
-      ['title', 'author', 'pages', 'cover', 'year', 'publisher', 'isbn', 'description', 'genre', 'lang'].forEach(k => target[k] = data[k] ?? '');
+      ['title', 'author', 'pages', 'cover', 'cover2', 'year', 'publisher', 'isbn', 'description', 'genre', 'lang'].forEach(k => target[k] = data[k] ?? '');
       Object.assign(target, keep);
       if (target.pages && target.currentPage > target.pages) target.currentPage = target.pages;
       if (target.status === 'read' && target.pages) target.currentPage = target.pages;
@@ -587,15 +640,24 @@ async function searchBooks(term, signal, frOnly) {
   const q = encodeURIComponent(isIsbn ? 'isbn:' + isbn : term);
   const base = 'https://www.googleapis.com/books/v1/volumes?maxResults=30&printType=books&q=' + q;
   const get = async u => { try { const d = await (await fetch(u, { signal })).json(); return (d.items || []).map(gbMap).filter(b => b.title); } catch (e) { if (e.name === 'AbortError') throw e; return null; } };
-  const [fr, all] = await Promise.all([get(base + '&langRestrict=fr'), (frOnly || isIsbn) ? Promise.resolve([]) : get(base)]);
+  const bnf = bnfSearch(term, isIsbn, signal).catch(e => { if (e.name === 'AbortError') throw e; return null; });
+  const [fr, all, bn] = await Promise.all([get(base + '&langRestrict=fr'), (frOnly || isIsbn) ? Promise.resolve([]) : get(base), bnf]);
   let out = [];
   const seen = new Set();
   const push = b => { const k = b.isbn || b.key; if (seen.has(k)) return; seen.add(k); out.push(b); };
   (fr || []).filter(b => !b.lang || b.lang === 'fr' || isIsbn).forEach(push);
+  // Éditions françaises de la BnF, en complétant avec la couverture/résumé Google si même ISBN
+  (bn || []).filter(b => !frOnly || b.lang === 'fr').forEach(b => {
+    const g = (all || []).concat(fr || []).find(x => x.isbn && x.isbn === b.isbn);
+    if (g) { b.cover = g.cover || b.cover; b.description = g.description; b.genre = g.genre; b.pages = b.pages || g.pages; }
+    push(b);
+  });
   if (isIsbn) (fr || []).forEach(push);
   (all || []).sort((a, b) => (b.lang === 'fr') - (a.lang === 'fr')).forEach(b => { if (!frOnly || b.lang === 'fr') push(b); });
   // On met en avant les éditions avec couverture et nombre de pages
-  out = out.map((b, i) => ({ b, s: (b.lang === 'fr' ? 100 : 0) + (b.cover ? 10 : 0) + (b.pages ? 5 : 0) - i * .5 })).sort((x, y) => y.s - x.s).map(x => x.b);
+  const words = term.toLowerCase().split(/\s+/).filter(w => w.length > 2);
+  const hit = b => words.filter(w => (b.title + ' ' + b.author).toLowerCase().includes(w)).length / (words.length || 1);
+  out = out.map((b, i) => ({ b, s: (b.lang === 'fr' ? 100 : 0) + hit(b) * 60 + (b.cover ? 10 : 0) + (b.pages ? 5 : 0) + (+b.year > 2000 ? 3 : 0) - i * .3 })).sort((x, y) => y.s - x.s).map(x => x.b);
   if (out.length < 3) {
     try {
       const u = 'https://openlibrary.org/search.json?limit=20&fields=title,author_name,number_of_pages_median,cover_i,first_publish_year,isbn,publisher,language&' + (isIsbn ? 'isbn=' + isbn : 'q=' + encodeURIComponent(term)) + (frOnly ? '&language=fre' : '');
@@ -606,7 +668,7 @@ async function searchBooks(term, signal, frOnly) {
         .sort((a, b) => (b.lang === 'fr') - (a.lang === 'fr')).forEach(push);
     } catch (e) { if (e.name === 'AbortError') throw e; if (!out.length && fr === null) throw e; }
   }
-  if (fr === null && all === null && !out.length) throw new Error('offline');
+  if (fr === null && all === null && bn === null && !out.length) throw new Error('offline');
   return out;
 }
 function chooseStatus(data, done) {

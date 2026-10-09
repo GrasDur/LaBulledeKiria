@@ -22,6 +22,13 @@ import android.widget.FrameLayout;
 
 import androidx.webkit.WebViewAssetLoader;
 
+import org.json.JSONObject;
+
+import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
+
 public class MainActivity extends Activity {
 
     private static final String START_URL = "https://appassets.androidplatform.net/assets/index.html";
@@ -138,6 +145,44 @@ public class MainActivity extends Activity {
                 send.putExtra(Intent.EXTRA_TEXT, text);
                 startActivity(Intent.createChooser(send, "Exporter la sauvegarde"));
             });
+        }
+
+        /** Requête HTTP GET native (sans restriction CORS), limitée aux catalogues de livres. */
+        @JavascriptInterface
+        public void httpGet(final String id, final String url) {
+            new Thread(() -> {
+                int code = 0;
+                String body = null;
+                HttpURLConnection c = null;
+                try {
+                    URL u = new URL(url);
+                    String host = u.getHost();
+                    if (!"https".equals(u.getProtocol()) || !(host.endsWith("bnf.fr") || host.endsWith("googleapis.com") || host.endsWith("openlibrary.org"))) {
+                        throw new SecurityException("hôte non autorisé");
+                    }
+                    c = (HttpURLConnection) u.openConnection();
+                    c.setConnectTimeout(10000);
+                    c.setReadTimeout(15000);
+                    c.setRequestProperty("User-Agent", "LaBulleDeKiria/1.2 (Android)");
+                    code = c.getResponseCode();
+                    InputStream in = code >= 400 ? c.getErrorStream() : c.getInputStream();
+                    if (in != null) {
+                        ByteArrayOutputStream out = new ByteArrayOutputStream();
+                        byte[] buf = new byte[16384];
+                        int n;
+                        while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+                        in.close();
+                        body = out.toString("UTF-8");
+                    }
+                } catch (Exception e) {
+                    code = 0;
+                } finally {
+                    if (c != null) c.disconnect();
+                }
+                final String js = "window.__kiriaHttp(" + JSONObject.quote(id) + "," + code + ","
+                        + (body == null ? "null" : JSONObject.quote(body)) + ")";
+                runOnUiThread(() -> { if (webView != null) webView.evaluateJavascript(js, null); });
+            }).start();
         }
 
         @JavascriptInterface
