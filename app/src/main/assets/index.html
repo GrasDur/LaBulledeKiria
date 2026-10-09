@@ -154,7 +154,7 @@ svg text{fill:var(--muted);font-family:var(--font)}
 .field input:focus,.field textarea:focus{border-color:var(--primary)}
 .two{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 
-.result{display:flex;gap:12px;align-items:center;padding:10px;border-radius:16px;background:var(--surface);margin-bottom:10px}
+.result{display:flex;gap:12px;align-items:center;cursor:pointer;padding:10px;border-radius:16px;background:var(--surface);margin-bottom:10px}
 .result .info{flex:1;min-width:0}
 .result .add{width:40px;height:40px;border-radius:50%;background:var(--primary-soft);color:var(--primary);font-size:22px;font-weight:700;flex:none}
 .result .add.done{background:var(--ok);color:#fff;font-size:16px}
@@ -227,7 +227,7 @@ svg text{fill:var(--muted);font-family:var(--font)}
 "use strict";
 /* ---------- Données ---------- */
 const KEY = 'kiria.v1';
-const DEFAULT = { books: [], logs: [], settings: { name: 'Kiria', dailyGoal: 20 }, session: null };
+const DEFAULT = { books: [], logs: [], settings: { name: 'Kiria', dailyGoal: 20, frOnly: false }, session: null };
 let S;
 try { S = JSON.parse(localStorage.getItem(KEY)) || structuredClone(DEFAULT); } catch (e) { S = structuredClone(DEFAULT); }
 S.settings = Object.assign({}, DEFAULT.settings, S.settings || {});
@@ -459,7 +459,7 @@ function viewMe() {
       <p class="muted small" style="margin-top:0">Tout est enregistré sur ton téléphone. Exporte une sauvegarde de temps en temps pour ne rien perdre.</p>
       <div class="row" style="gap:10px"><button class="btn primary" style="flex:1" onclick="exportData()">⬆ Exporter</button><button class="btn" style="flex:1" onclick="openImport()">⬇ Importer</button></div>
     </div></div>
-  <div class="section" style="text-align:center"><div class="muted small">La Bulle de Kiria · v1.0<br>Données livres : Google Books & Open Library</div></div>`;
+  <div class="section" style="text-align:center"><div class="muted small">La Bulle de Kiria · v1.1<br>Données livres : Google Books & Open Library</div></div>`;
 }
 document.addEventListener('change', e => {
   if (e.target.id === 'set-name') { S.settings.name = e.target.value.trim() || 'Kiria'; save(); toast('Prénom enregistré'); }
@@ -506,62 +506,107 @@ function closeSheet() {
 function closeAll() { while (stack.length) closeSheet(); }
 
 /* ---------- Ajout de livre ---------- */
-function openAdd() {
-  const sh = openSheet('Ajouter un livre', `
-    <label class="search" style="margin-top:0"><span class="muted">🔍</span><input id="q" placeholder="Titre, auteur ou ISBN" enterkeyhint="search" autocomplete="off"></label>
-    <div id="results"><div class="empty" style="padding:24px 10px"><div class="bubble" style="width:70px;height:70px;font-size:30px">🔎</div>Recherche un livre pour l’ajouter avec sa couverture et ses infos.</div></div>
-    <button class="btn block" id="manual" style="margin-top:6px">✎ Saisir manuellement</button>`);
+function openAdd(replaceId) {
+  const target = replaceId ? book(replaceId) : null;
+  const sh = openSheet(target ? 'Changer d’édition' : 'Ajouter un livre', `
+    <label class="search" style="margin-top:0"><span class="muted">🔍</span><input id="q" placeholder="Titre, auteur ou ISBN" enterkeyhint="search" autocomplete="off" value="${target ? esc(target.author || target.title) : ''}"></label>
+    <div class="row" style="margin:-4px 0 12px;gap:8px">
+      <button class="chip lang-f ${S.settings.frOnly ? 'p' : ''}" data-fr="1">🇫🇷 Français seulement</button>
+      <button class="chip lang-f ${S.settings.frOnly ? '' : 'p'}" data-fr="0">🌍 Toutes les langues</button>
+    </div>
+    <div id="results"><div class="empty" style="padding:24px 10px"><div class="bubble" style="width:70px;height:70px;font-size:30px">🔎</div>${target ? 'Choisis la bonne édition : ta progression et ton historique sont conservés.' : 'Recherche un livre, puis touche-le pour voir sa fiche avant de l’ajouter.'}</div></div>
+    ${target ? '' : '<button class="btn block" id="manual" style="margin-top:6px">✎ Saisir manuellement</button>'}`);
   const q = sh.querySelector('#q'), res = sh.querySelector('#results');
   let t, ctrl;
   q.oninput = () => { clearTimeout(t); t = setTimeout(run, 450); };
   q.onkeydown = e => { if (e.key === 'Enter') { clearTimeout(t); run(); q.blur(); } };
-  sh.querySelector('#manual').onclick = () => openEdit(null, { title: q.value });
+  sh.querySelector('#manual')?.addEventListener('click', () => openEdit(null, { title: q.value }));
+  sh.querySelectorAll('[data-fr]').forEach(c => c.onclick = () => {
+    S.settings.frOnly = c.dataset.fr === '1'; save();
+    sh.querySelectorAll('[data-fr]').forEach(x => x.classList.toggle('p', x === c)); run();
+  });
   async function run() {
     const term = q.value.trim(); if (term.length < 2) return;
     ctrl?.abort(); ctrl = new AbortController();
     res.innerHTML = '<div class="spin"></div>';
     try {
-      const items = await searchBooks(term, ctrl.signal);
-      if (!items.length) { res.innerHTML = `<div class="empty" style="padding:24px">Aucun livre trouvé. Tu peux le saisir manuellement.</div>`; return; }
-      res.innerHTML = items.map((b, i) => `<div class="result">${coverHTML(b, 'c-sm')}<div class="info"><div class="title" style="font-size:15px">${esc(b.title)}</div>
-        <div class="author">${esc(b.author || 'Auteur inconnu')}</div><div class="muted small">${[b.year, b.pages ? b.pages + ' p.' : ''].filter(Boolean).join(' · ')}</div></div>
-        <button class="add" data-i="${i}" aria-label="Ajouter">＋</button></div>`).join('');
-      res.querySelectorAll('.add').forEach(btn => btn.onclick = () => {
-        if (btn.classList.contains('done')) return;
-        chooseStatus(items[btn.dataset.i], () => { btn.classList.add('done'); btn.textContent = '✓'; });
-      });
+      const items = await searchBooks(term, ctrl.signal, !!S.settings.frOnly);
+      if (!items.length) { res.innerHTML = `<div class="empty" style="padding:24px">Aucun livre trouvé.${S.settings.frOnly ? ' Essaie « Toutes les langues ».' : ''}</div>`; return; }
+      res.innerHTML = items.map((b, i) => `<div class="result" data-i="${i}">${coverHTML(b, 'c-sm')}<div class="info"><div class="title" style="font-size:15px">${esc(b.title)}</div>
+        <div class="author">${esc(b.author || 'Auteur inconnu')}</div>
+        <div class="muted small">${[langBadge(b.lang), b.publisher && esc(b.publisher.slice(0, 24)), b.year, b.pages ? b.pages + ' p.' : ''].filter(Boolean).join(' · ')}</div></div>
+        <span class="muted" style="font-size:22px;padding:0 6px">›</span></div>`).join('');
+      res.querySelectorAll('.result').forEach(r => r.onclick = () => previewResult(items[r.dataset.i], target));
     } catch (e) {
       if (e.name === 'AbortError') return;
-      res.innerHTML = `<div class="empty" style="padding:24px">Recherche impossible (connexion ?). Tu peux saisir le livre manuellement.</div>`;
+      res.innerHTML = `<div class="empty" style="padding:24px">Recherche impossible (connexion ?).${target ? '' : ' Tu peux saisir le livre manuellement.'}</div>`;
     }
   }
-  setTimeout(() => q.focus(), 350);
+  if (target) run(); else setTimeout(() => q.focus(), 350);
 }
-async function searchBooks(term, signal) {
+const LANGS = { fr: '🇫🇷 FR', en: '🇬🇧 EN', es: '🇪🇸 ES', de: '🇩🇪 DE', it: '🇮🇹 IT', pt: '🇵🇹 PT', ja: '🇯🇵 JA', nl: '🇳🇱 NL' };
+function langBadge(l) { return l ? (LANGS[l] || l.toUpperCase()) : ''; }
+
+function previewResult(data, target) {
+  const meta = [data.lang && langBadge(data.lang), data.pages && `📄 ${data.pages} pages`, data.year && `📅 ${esc(data.year)}`, data.publisher && `🏢 ${esc(data.publisher)}`, data.genre && `🏷 ${esc(data.genre)}`]
+    .filter(Boolean).map(c => `<span class="chip">${c}</span>`).join('');
+  const sh = openSheet('', `
+    <div class="detail-top">${coverHTML(data, 'c-lg')}<div style="min-width:0"><h2>${esc(data.title)}</h2><div class="muted" style="margin-top:6px">${esc(data.author || 'Auteur inconnu')}</div>
+      ${data.isbn ? `<div class="muted small" style="margin-top:4px">ISBN ${esc(data.isbn)}</div>` : ''}</div></div>
+    <div class="chips">${meta}</div>
+    ${data.description ? `<div class="section"><div class="section-h"><h2>Résumé</h2></div><div class="desc open">${esc(data.description.replace(/<[^>]+>/g, ''))}</div></div>` : '<p class="muted small" style="margin-top:16px">Pas de résumé pour cette édition.</p>'}
+    <div style="margin-top:20px"><button class="btn accent block" id="pv-go">${target ? '✓ Utiliser cette édition' : '＋ Ajouter ce livre'}</button>
+    <button class="btn block" style="margin-top:10px" id="pv-back">← Retour aux résultats</button></div>`);
+  sh.querySelector('.sh').style.padding = '0 18px';
+  sh.querySelector('#pv-back').onclick = closeSheet;
+  sh.querySelector('#pv-go').onclick = () => {
+    if (target) {
+      const keep = { id: target.id, status: target.status, currentPage: target.currentPage, rating: target.rating, notes: target.notes, addedAt: target.addedAt, startedAt: target.startedAt, finishedAt: target.finishedAt, lastReadAt: target.lastReadAt };
+      ['title', 'author', 'pages', 'cover', 'year', 'publisher', 'isbn', 'description', 'genre', 'lang'].forEach(k => target[k] = data[k] ?? '');
+      Object.assign(target, keep);
+      if (target.pages && target.currentPage > target.pages) target.currentPage = target.pages;
+      if (target.status === 'read' && target.pages) target.currentPage = target.pages;
+      save(); closeAll(); render(); openBook(target.id); toast('Édition mise à jour ✓');
+    } else {
+      closeSheet(); chooseStatus(data);
+    }
+  };
+}
+
+function gbMap(it) {
+  const v = it.volumeInfo || {}; const ids = v.industryIdentifiers || [];
+  const im = v.imageLinks || {};
+  const cover = (im.thumbnail || im.smallThumbnail || '').replace('http://', 'https://').replace('&edge=curl', '');
+  return { key: it.id, title: v.title + (v.subtitle && v.title.length < 30 ? ' – ' + v.subtitle : ''), author: (v.authors || []).join(', '), pages: v.pageCount || 0,
+    cover, year: (v.publishedDate || '').slice(0, 4), publisher: v.publisher || '', isbn: (ids.find(i => i.type === 'ISBN_13') || ids[0] || {}).identifier || '',
+    description: v.description || '', genre: (v.categories || [])[0] || '', lang: v.language || '' };
+}
+async function searchBooks(term, signal, frOnly) {
   const isbn = term.replace(/[-\s]/g, '');
   const isIsbn = /^(\d{9}[\dXx]|\d{13})$/.test(isbn);
+  const q = encodeURIComponent(isIsbn ? 'isbn:' + isbn : term);
+  const base = 'https://www.googleapis.com/books/v1/volumes?maxResults=30&printType=books&q=' + q;
+  const get = async u => { try { const d = await (await fetch(u, { signal })).json(); return (d.items || []).map(gbMap).filter(b => b.title); } catch (e) { if (e.name === 'AbortError') throw e; return null; } };
+  const [fr, all] = await Promise.all([get(base + '&langRestrict=fr'), (frOnly || isIsbn) ? Promise.resolve([]) : get(base)]);
   let out = [];
-  try {
-    const u = 'https://www.googleapis.com/books/v1/volumes?maxResults=20&printType=books&q=' + encodeURIComponent(isIsbn ? 'isbn:' + isbn : term);
-    const r = await fetch(u, { signal }); const d = await r.json();
-    out = (d.items || []).map(it => {
-      const v = it.volumeInfo || {}; const ids = v.industryIdentifiers || [];
-      const im = v.imageLinks || {};
-      let cover = (im.thumbnail || im.smallThumbnail || '').replace('http://', 'https://').replace('&edge=curl', '');
-      return { title: v.title + (v.subtitle && v.title.length < 30 ? ' – ' + v.subtitle : ''), author: (v.authors || []).join(', '), pages: v.pageCount || 0,
-        cover, year: (v.publishedDate || '').slice(0, 4), publisher: v.publisher || '', isbn: (ids.find(i => i.type === 'ISBN_13') || ids[0] || {}).identifier || '',
-        description: v.description || '', genre: (v.categories || [])[0] || '', lang: v.language || '' };
-    }).filter(b => b.title);
-  } catch (e) { if (e.name === 'AbortError') throw e; }
+  const seen = new Set();
+  const push = b => { const k = b.isbn || b.key; if (seen.has(k)) return; seen.add(k); out.push(b); };
+  (fr || []).filter(b => !b.lang || b.lang === 'fr' || isIsbn).forEach(push);
+  if (isIsbn) (fr || []).forEach(push);
+  (all || []).sort((a, b) => (b.lang === 'fr') - (a.lang === 'fr')).forEach(b => { if (!frOnly || b.lang === 'fr') push(b); });
+  // On met en avant les éditions avec couverture et nombre de pages
+  out = out.map((b, i) => ({ b, s: (b.lang === 'fr' ? 100 : 0) + (b.cover ? 10 : 0) + (b.pages ? 5 : 0) - i * .5 })).sort((x, y) => y.s - x.s).map(x => x.b);
   if (out.length < 3) {
     try {
-      const u = 'https://openlibrary.org/search.json?limit=15&fields=title,author_name,number_of_pages_median,cover_i,first_publish_year,isbn,publisher&' + (isIsbn ? 'isbn=' + isbn : 'q=' + encodeURIComponent(term));
+      const u = 'https://openlibrary.org/search.json?limit=20&fields=title,author_name,number_of_pages_median,cover_i,first_publish_year,isbn,publisher,language&' + (isIsbn ? 'isbn=' + isbn : 'q=' + encodeURIComponent(term)) + (frOnly ? '&language=fre' : '');
       const d = await (await fetch(u, { signal })).json();
-      out = out.concat((d.docs || []).map(x => ({ title: x.title, author: (x.author_name || []).join(', '), pages: x.number_of_pages_median || 0,
+      (d.docs || []).map(x => ({ title: x.title, author: (x.author_name || []).join(', '), pages: x.number_of_pages_median || 0,
         cover: x.cover_i ? `https://covers.openlibrary.org/b/id/${x.cover_i}-M.jpg` : '', year: x.first_publish_year ? String(x.first_publish_year) : '',
-        publisher: (x.publisher || [])[0] || '', isbn: (x.isbn || [])[0] || '', description: '' })));
-    } catch (e) { if (e.name === 'AbortError') throw e; if (!out.length) throw e; }
+        publisher: (x.publisher || [])[0] || '', isbn: (x.isbn || [])[0] || '', description: '', lang: (x.language || []).includes('fre') ? 'fr' : ((x.language || [])[0] === 'eng' ? 'en' : '') }))
+        .sort((a, b) => (b.lang === 'fr') - (a.lang === 'fr')).forEach(push);
+    } catch (e) { if (e.name === 'AbortError') throw e; if (!out.length && fr === null) throw e; }
   }
+  if (fr === null && all === null && !out.length) throw new Error('offline');
   return out;
 }
 function chooseStatus(data, done) {
@@ -609,7 +654,7 @@ function openBook(id) {
   const b = book(id); if (!b) return;
   const logs = S.logs.filter(l => l.bookId === id).sort((a, c) => c.at - a.at);
   const totalSec = logs.reduce((a, l) => a + (l.seconds || 0), 0);
-  const chips = [b.pages ? `📄 ${b.pages} pages` : '', b.year ? `📅 ${esc(b.year)}` : '', b.publisher ? `🏢 ${esc(b.publisher)}` : '', b.genre ? `🏷 ${esc(b.genre)}` : '', totalSec ? `⏱ ${fmtDur(totalSec)}` : '']
+  const chips = [b.lang ? langBadge(b.lang) : '', b.pages ? `📄 ${b.pages} pages` : '', b.year ? `📅 ${esc(b.year)}` : '', b.publisher ? `🏢 ${esc(b.publisher)}` : '', b.genre ? `🏷 ${esc(b.genre)}` : '', totalSec ? `⏱ ${fmtDur(totalSec)}` : '']
     .filter(Boolean).map(c => `<span class="chip">${c}</span>`).join('');
   let main = '';
   if (b.status === 'reading') {
@@ -635,7 +680,8 @@ function openBook(id) {
     ${b.description ? `<div class="section"><div class="section-h"><h2>Résumé</h2></div><div class="desc" id="d-desc">${esc(b.description.replace(/<[^>]+>/g, ''))}</div><button class="link" id="d-more" style="margin-top:6px">Lire plus</button></div>` : ''}
     <div class="section"><div class="section-h"><h2>Mes notes</h2></div><div class="field" style="margin:0"><textarea id="d-notes" rows="3" placeholder="Citations, impressions, personnages…">${esc(b.notes || '')}</textarea></div></div>
     ${logs.length ? `<div class="section"><div class="section-h"><h2>Historique</h2><span class="muted small">${logs.length} entrée${logs.length > 1 ? 's' : ''}</span></div><div class="card">${logs.slice(0, 30).map(l => histRow(l)).join('')}</div></div>` : ''}
-    <div class="row" style="margin-top:24px;gap:10px"><button class="btn" style="flex:1" id="d-edit">✎ Modifier</button><button class="btn danger" style="flex:1" id="d-del">Supprimer</button></div>`);
+    <button class="btn block" style="margin-top:24px" id="d-edition">🔄 Changer d’édition</button>
+    <div class="row" style="margin-top:10px;gap:10px"><button class="btn" style="flex:1" id="d-edit">✎ Modifier</button><button class="btn danger" style="flex:1" id="d-del">Supprimer</button></div>`);
   sh.querySelector('.sh').style.padding = '0 18px';
   bindView(sh);
   sh.querySelectorAll('[data-st]').forEach(p => p.onclick = () => { setStatus(b, p.dataset.st); closeSheet(); setTimeout(() => openBook(id), 150); });
@@ -646,6 +692,7 @@ function openBook(id) {
   sh.querySelector('#d-more')?.addEventListener('click', e => { sh.querySelector('#d-desc').classList.toggle('open'); e.target.textContent = sh.querySelector('#d-desc').classList.contains('open') ? 'Réduire' : 'Lire plus'; });
   sh.querySelector('#d-notes').onchange = e => { b.notes = e.target.value; save(); toast('Note enregistrée'); };
   sh.querySelector('#d-edit').onclick = () => openEdit(id);
+  sh.querySelector('#d-edition').onclick = () => openAdd(id);
   sh.querySelector('#d-del').onclick = () => {
     const c = openSheet('Supprimer ce livre ?', `<p class="muted" style="margin-top:0">« ${esc(b.title)} » et son historique de lecture seront supprimés.</p>
       <button class="btn block" style="background:var(--danger);color:#fff" id="c-yes">Supprimer</button><button class="btn block" style="margin-top:10px" id="c-no">Annuler</button>`);
