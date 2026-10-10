@@ -194,6 +194,28 @@ svg text{fill:var(--muted);font-family:var(--font)}
 .cday .ccov .cover{width:100%;height:100%;border-radius:0;box-shadow:none}
 .cday .ccov .ph{font-size:8px;padding:4px}
 .cday .cmore{position:absolute;bottom:3px;right:3px;z-index:3;background:var(--accent);color:#fff;font-size:10px;font-weight:700;border-radius:8px;padding:1px 5px}
+.fbadge{position:absolute;right:3px;bottom:3px;z-index:2;font-size:11px;background:#000a;border-radius:6px;padding:1px 3px;line-height:1.2}
+.mini.rel{position:relative}
+.jbadge{position:absolute;top:6px;left:6px;z-index:3;background:var(--accent);color:#fff;font-size:11px;font-weight:800;border-radius:8px;padding:2px 6px}
+.sbadge{position:absolute;top:6px;right:6px;z-index:3;background:#000a;color:#FCD34D;font-size:12px;border-radius:8px;padding:1px 5px}
+.radar-bar{display:flex;align-items:center;gap:12px;padding:12px 14px}
+.radar-hint{display:flex;align-items:center;gap:12px;width:100%;margin-top:10px;font-size:14px;padding:12px 14px;color:var(--ink)}
+.pin{width:32px;height:32px;border-radius:50%;background:var(--surface-2);font-size:17px;color:var(--muted)}
+.pin.on{background:#FEF3C7;color:#D97706}
+.cday.rad{box-shadow:inset 0 0 0 2px #F59E0B}
+.cday.rad.sel{box-shadow:0 0 0 2.5px var(--primary)}
+.lg{display:inline-block;width:10px;height:10px;border-radius:3px;vertical-align:-1px;margin-right:3px}
+.lg-b{background:var(--primary)}
+.lg-r{background:none;box-shadow:inset 0 0 0 2px #F59E0B}
+.filt .sep{flex:none;width:1px;background:var(--line);margin:4px 2px}
+.hb{display:flex;align-items:center;gap:10px;margin-bottom:8px;font-size:13.5px}
+.hb-l{width:118px;flex:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hb-t{flex:1;height:10px;border-radius:9px;background:var(--surface-2);overflow:hidden}
+.hb-t i{display:block;height:100%;border-radius:9px;background:linear-gradient(90deg,var(--primary),var(--accent))}
+.hb-v{width:34px;text-align:right;font-weight:700;font-variant-numeric:tabular-nums}
+.kpis .kpi .v{font-size:21px}
+.mhead{font-size:12px;font-weight:800;letter-spacing:.8px;text-transform:uppercase;color:var(--primary);padding:12px 0 2px}
+.mhead:first-child{padding-top:2px}
 .hist .dot{width:34px;height:34px;border-radius:50%;background:var(--primary-soft);color:var(--primary);display:flex;align-items:center;justify-content:center;font-size:15px;flex:none}
 .rate button{font-size:30px;color:var(--line);padding:0 2px}
 .rate button.on{color:#F5B301}
@@ -257,7 +279,7 @@ const DEFAULT = { books: [], logs: [], settings: { name: 'Kiria', dailyGoal: 20,
 let S;
 try { S = JSON.parse(localStorage.getItem(KEY)) || structuredClone(DEFAULT); } catch (e) { S = structuredClone(DEFAULT); }
 S.settings = Object.assign({}, DEFAULT.settings, S.settings || {});
-S.books = S.books || []; S.logs = S.logs || []; S.shelves = S.shelves || [];
+S.books = S.books || []; S.logs = S.logs || []; S.shelves = S.shelves || []; S.radar = S.radar || {};
 function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { toast('Impossible d’enregistrer'); } scheduleAutoBackup(); }
 
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
@@ -374,15 +396,77 @@ function coverHTML(b, cls) {
   const src = b.cover || b.cover2;
   const alt = b.cover && b.cover2 ? ` data-alt="${esc(b.cover2)}"` : '';
   const img = src ? `<img src="${esc(src)}"${alt} alt="" loading="lazy" onerror="if(this.dataset.alt){this.src=this.dataset.alt;delete this.dataset.alt}else this.remove()" onload="if(this.naturalWidth<20)this.onerror()" style="position:relative;z-index:1">` : '';
-  return `<div class="cover ${cls}">${ph}${img}</div>`;
+  const fb = b.format === 'audio' ? '🎧' : b.format === 'webtoon' ? '🖼' : b.format === 'ebook' ? '📱' : '';
+  return `<div class="cover ${cls}">${ph}${img}${fb ? `<span class="fbadge">${fb}</span>` : ''}</div>`;
+}
+
+/* ---------- Formats (papier, ebook, audio, webtoon) ---------- */
+const FORMATS = {
+  paper: { e: '📕', l: 'Papier', u: 'p', one: 'page', many: 'pages', add: '＋ Pages' },
+  ebook: { e: '📱', l: 'Ebook', u: 'p', one: 'page', many: 'pages', add: '＋ Pages' },
+  audio: { e: '🎧', l: 'Audio', u: 'min', one: 'minute', many: 'minutes', add: '＋ Écoute' },
+  webtoon: { e: '🖼', l: 'Webtoon', u: 'ch', one: 'chapitre', many: 'chapitres', add: '＋ Chapitres' }
+};
+const fmtOf = b => FORMATS[(b && b.format) || 'paper'] || FORMATS.paper;
+const unitOf = b => fmtOf(b).u;
+function fmtMin(m) { m = Math.round(m || 0); const h = Math.floor(m / 60), r = m % 60; return h ? `${h} h${r ? ' ' + String(r).padStart(2, '0') : ''}` : `${r} min`; }
+/* "12h30", "12:30", "750" (minutes) → minutes */
+function parseDur(s) {
+  s = String(s || '').trim().toLowerCase().replace(',', '.');
+  if (!s) return 0;
+  let m = s.match(/^(\d+(?:\.\d+)?)\s*[h:]\s*(\d{1,2})?\s*(?:min|m)?$/);
+  if (m) return Math.round(parseFloat(m[1]) * 60 + (m[2] ? +m[2] : 0));
+  m = s.match(/^(\d+)\s*(?:min|m)?$/);
+  return m ? +m[1] : 0;
+}
+/* Progression lisible : "p. 34 / 96", "3 h 20 / 12 h", "Ch. 45 / 120" */
+function progLabel(b, long) {
+  const f = fmtOf(b), cur = b.currentPage || 0, tot = b.pages || 0;
+  if (f.u === 'min') return tot ? `${fmtMin(cur)} / ${fmtMin(tot)}` : fmtMin(cur) + ' écoutées';
+  if (f.u === 'ch') return tot ? `Ch. ${cur} / ${tot}` : `Ch. ${cur}${long ? ' (série en cours)' : ''}`;
+  return tot ? (long ? `Page ${cur} / ${tot}` : `p. ${cur} / ${tot}`) : (long ? `Page ${cur}` : 'Pages inconnues');
+}
+function qtyLabel(n, u) {
+  if (u === 'min') return fmtMin(n);
+  if (u === 'ch') return `${n} chapitre${n > 1 ? 's' : ''}`;
+  return `${n} page${n > 1 ? 's' : ''}`;
+}
+
+/* ---------- Genres (tags) ---------- */
+const BASE_TAGS = [
+  { id: 'fantasy', l: 'Fantasy', e: '🐉' },
+  { id: 'romantasy', l: 'Romantasy', e: '🧚' },
+  { id: 'romance', l: 'Romance', e: '💘' },
+  { id: 'darkromance', l: 'Dark romance', e: '🖤' }
+];
+function allTags() { return BASE_TAGS.concat((S.settings.customTags || []).map(t => ({ id: t.id, l: t.l, e: t.e || '🏷', custom: true }))); }
+const tagById = id => allTags().find(t => t.id === id);
+const tagChip = id => { const t = tagById(id); return t ? `${t.e} ${esc(t.l)}` : ''; };
+const nrm = s => ' ' + (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '') + ' ';
+const RX = {
+  dark: /dark romance|darkromance|mafia|bratva|captiv|obsess|stalk|kidnap|enlev|possessi|ravisseur|bully|why choose|tabou|cartel|soumi|mon bourreau|psychopath/,
+  fantasy: /fantasy|fantastique|\bfae\b|faes|fee |fees |dragon|magie|magique|sorci|royaume|elfe|elfique|prophet|dieux|deesse|vampire|loup-garou|lycan|metamorph|shifter|witch|kingdom|magic|sortilege|chevaucheu|couronne|immortel|demon|ange dechu|mythologi/,
+  romance: /romance|romantique|amour|amoureu|\blove\b|passion|sentiment|ennemis? (a|aux) amants|enemies to lovers|slow burn|coup de foudre|seduction|desir|milliardaire|billionaire|mariage arrange|fake dating/
+};
+function classify(b) {
+  const t = nrm([b.title, b.genre, b.description].join(' '));
+  const tags = [];
+  const fan = RX.fantasy.test(t), rom = RX.romance.test(t), dark = RX.dark.test(t);
+  if (/romantasy/.test(t) || (fan && rom)) tags.push('romantasy');
+  if (fan) tags.push('fantasy');
+  if (dark) tags.push('darkromance');
+  if (rom || dark) tags.push('romance');
+  for (const c of (S.settings.customTags || [])) if (c.kw && nrm(c.kw).trim() && t.includes(nrm(c.kw).trim())) tags.push(c.id);
+  return [...new Set(tags)];
 }
 
 /* ---------- PAL & Wishlist ---------- */
 const STATUS = { wish: '💫 Wishlist', toread: '🫧 PAL', reading: '📖 En cours', read: '🏁 Lu' };
 function palList() { return S.books.filter(b => b.status === 'toread').sort((a, b) => (a.palOrder ?? a.addedAt) - (b.palOrder ?? b.addedAt)); }
 function palNext() { return Math.max(0, ...S.books.filter(b => b.status === 'toread').map(b => b.palOrder || 0)) + 1; }
-function movePal(id, dir) {
-  const l = palList(); l.forEach((b, i) => b.palOrder = i + 1);
+function movePal(id, dir, visibleIds) {
+  const all = palList(); all.forEach((b, i) => b.palOrder = i + 1);
+  const l = visibleIds ? all.filter(b => visibleIds.includes(b.id)) : all;
   const i = l.findIndex(b => b.id === id), j = i + dir; if (i < 0 || j < 0 || j >= l.length) return;
   [l[i].palOrder, l[j].palOrder] = [l[j].palOrder, l[i].palOrder]; save(); render();
 }
@@ -508,70 +592,287 @@ function viewShelf(sh, q) {
   return h;
 }
 
+/* ---------- Radar des sorties (Apple Books) ---------- */
+const GENRE_QUERIES = {
+  fantasy: ['fantasy'],
+  romantasy: ['romantasy'],
+  romance: ['romance'],
+  darkromance: ['dark romance']
+};
+function radarState() {
+  S.radar = S.radar || {};
+  const r = S.radar;
+  r.items = r.items || []; r.hidden = r.hidden || []; r.pinned = r.pinned || []; r.authors = r.authors || []; r.removedAuthors = r.removedAuthors || [];
+  if (!S.settings.interests) S.settings.interests = ['fantasy', 'romantasy', 'romance', 'darkromance'];
+  return r;
+}
+const firstAuthor = a => (a || '').split(',')[0].trim();
+function followedAuthors() {
+  const r = radarState(), count = {};
+  for (const b of S.books) { const a = firstAuthor(b.author); if (a && a.length > 2) count[a] = (count[a] || 0) + (b.rating >= 4 ? 3 : 1) + (b.status === 'wish' ? 1 : 0); }
+  const auto = Object.keys(count).filter(a => !r.removedAuthors.includes(a)).sort((x, y) => count[y] - count[x]);
+  return [...new Set(r.authors.concat(auto))];
+}
+function inLibrary(item) {
+  const k = normKey(item.title), a = normKey(firstAuthor(item.author)).slice(0, 6);
+  return S.books.some(b => normKey(b.title) === k && normKey(firstAuthor(b.author)).slice(0, 6) === a);
+}
+const radarKey = it => normKey(it.title) + '|' + normKey(firstAuthor(it.author)).slice(0, 8);
+let radarRunning = false;
+async function scanRadar(onStep) {
+  if (radarRunning) return;
+  radarRunning = true;
+  const r = radarState();
+  const authors = followedAuthors().slice(0, 8);
+  const jobs = authors.map(a => ({ kind: 'author', q: a }))
+    .concat(S.settings.interests.flatMap(t => (GENRE_QUERIES[t] || [tagById(t)?.l]).filter(Boolean).map(q => ({ kind: 'genre', q, tag: t }))))
+    .concat((S.settings.customTags || []).filter(t => S.settings.interests.includes(t.id) && t.kw).map(t => ({ kind: 'genre', q: t.kw, tag: t.id })));
+  const today = dayKey(), found = new Map();
+  let ok = 0, fail = 0;
+  for (let i = 0; i < jobs.length; i++) {
+    const j = jobs[i];
+    onStep && onStep(i, jobs.length, j);
+    try {
+      const url = 'https://itunes.apple.com/search?country=fr&lang=fr_fr&media=ebook&entity=ebook&limit=' + (j.kind === 'author' ? 50 : 100)
+        + (j.kind === 'author' ? '&attribute=authorTerm' : '') + '&term=' + encodeURIComponent(j.q);
+      const d = JSON.parse(await httpText(url));
+      ok++;
+      for (const raw of (d.results || [])) {
+        const rd = (raw.releaseDate || '').slice(0, 10);
+        if (!raw.trackName || !rd || rd <= today) continue;
+        const it = appleMap(raw);
+        if (it.lang === 'en') continue;
+        it.tags = classify(it);
+        if (j.kind === 'author') { if (normKey(firstAuthor(it.author)).slice(0, 6) !== normKey(j.q).slice(0, 6)) continue; it.why = 'author'; it.whyLabel = '✍️ ' + firstAuthor(it.author); }
+        else {
+          const fiction = /roman|fantas|fiction|sentiment|young adult|imaginaire|new adult|érotique|erotique|romance/i.test((raw.genres || []).join(' '));
+          if (!it.tags.length && !fiction) continue;
+          if (!it.tags.length) it.tags = [j.tag];
+          it.why = 'genre';
+        }
+        const k = radarKey(it);
+        const prev = found.get(k);
+        if (prev) { prev.tags = [...new Set(prev.tags.concat(it.tags))]; if (it.why === 'author') { prev.why = 'author'; prev.whyLabel = it.whyLabel; } continue; }
+        found.set(k, it);
+      }
+    } catch (e) { fail++; }
+    await new Promise(res => setTimeout(res, 1600)); // Apple limite ~20 recherches/minute
+  }
+  radarRunning = false;
+  if (!ok) { onStep && onStep(jobs.length, jobs.length, null); return { ok, fail, n: r.items.length }; }
+  const items = [...found.values()].map(it => Object.assign(it, { rk: radarKey(it) }));
+  // garder les épinglés même s'ils n'ont pas été retrouvés cette fois
+  for (const old of r.items) if (r.pinned.includes(old.rk) && !items.some(x => x.rk === old.rk) && old.releaseDate > today) items.push(old);
+  r.items = items.sort((a, b) => a.releaseDate.localeCompare(b.releaseDate));
+  r.scannedAt = Date.now();
+  save();
+  onStep && onStep(jobs.length, jobs.length, null);
+  return { ok, fail, n: items.length };
+}
+/* Sorties détectées visibles (filtre de genres, masquées, déjà dans la bibliothèque) */
+function radarVisible(tagFilter) {
+  const r = radarState(), today = dayKey();
+  return r.items.filter(it => it.releaseDate > today && !r.hidden.includes(it.rk) && !inLibrary(it)
+    && (it.why === 'author' || it.tags.some(t => S.settings.interests.includes(t)))
+    && (!tagFilter || tagFilter === 'radar' || it.tags.includes(tagFilter)));
+}
+function isPinned(it) { return radarState().pinned.includes(it.rk); }
+function togglePin(it) {
+  const r = radarState(), i = r.pinned.indexOf(it.rk);
+  if (i >= 0) r.pinned.splice(i, 1); else r.pinned.push(it.rk);
+  save(); return i < 0;
+}
+function hideRadar(it) { const r = radarState(); if (!r.hidden.includes(it.rk)) r.hidden.push(it.rk); r.pinned = r.pinned.filter(x => x !== it.rk); save(); }
+function radarByKey(rk) { return radarState().items.find(x => x.rk === rk); }
+function openRadarItem(rk) {
+  const it = radarByKey(rk); if (!it) return;
+  const tags = (it.tags || []).map(t => `<span class="chip p">${tagChip(t)}</span>`).join('');
+  const sh = openSheet('', `
+    <div class="detail-top">${coverHTML(it, 'c-lg')}<div style="min-width:0"><div class="chip a" style="margin-bottom:8px">✨ Sortie détectée</div><h2>${esc(it.title)}</h2><div class="muted" style="margin-top:6px">${esc(it.author || '')}</div></div></div>
+    <div class="chips"><span class="chip">📅 ${releaseLabel(it)}</span>${it.whyLabel ? `<span class="chip">${esc(it.whyLabel)}</span>` : ''}${tags}</div>
+    ${it.description ? `<div class="section"><div class="section-h"><h2>Résumé</h2></div><div class="desc open">${esc(it.description)}</div></div>` : ''}
+    <div style="margin-top:20px">
+      <button class="btn accent block" id="rd-add">💫 Ajouter à ma wishlist</button>
+      <button class="btn block" style="margin-top:10px" id="rd-pin">${isPinned(it) ? '★ Retirer de l’accueil' : '☆ Épingler sur l’accueil'}</button>
+      <button class="btn block" style="margin-top:10px" id="rd-hide">🙈 Pas intéressée — masquer</button>
+    </div>`);
+  sh.querySelector('.sh').style.padding = '0 18px';
+  sh.querySelector('#rd-add').onclick = () => {
+    const data = Object.assign({}, it, { format: 'paper', tags: it.tags || [] });
+    delete data.rk; delete data.why; delete data.whyLabel; delete data.key;
+    addBook(data, 'wish'); radarState().pinned = radarState().pinned.filter(x => x !== it.rk); save(); closeSheet(); render();
+  };
+  sh.querySelector('#rd-pin').onclick = () => { const p = togglePin(it); toast(p ? 'Épinglé sur l’accueil ★' : 'Retiré de l’accueil'); closeSheet(); render(); };
+  sh.querySelector('#rd-hide').onclick = () => { hideRadar(it); toast('Masqué'); closeSheet(); render(); };
+}
+function openRadarSettings() {
+  const r = radarState();
+  const authors = followedAuthors();
+  const sh = openSheet('Mes envies de lecture', `
+    <p class="muted small" style="margin-top:0">Le radar cherche dans Apple Books les livres à paraître qui correspondent à tes genres et aux auteurs que tu suis.</p>
+    <div class="section-h" style="margin-top:6px"><h2 style="font-size:16px">Genres qui m'intéressent</h2></div>
+    <div class="chips" id="rs-tags">${allTags().map(t => `<button class="chip ${S.settings.interests.includes(t.id) ? 'p' : ''}" data-t="${t.id}">${S.settings.interests.includes(t.id) ? '✓ ' : ''}${t.e} ${esc(t.l)}</button>`).join('')}
+      <button class="chip" id="rs-newtag">＋ Autre genre</button></div>
+    <div class="section-h" style="margin-top:18px"><h2 style="font-size:16px">Auteurs suivis</h2><span class="muted small">${authors.length}</span></div>
+    <p class="muted small" style="margin-top:-6px">Ajoutés automatiquement depuis ta bibliothèque. Touche un nom pour l’enlever.</p>
+    <div class="chips" id="rs-auth">${authors.map(a => `<button class="chip" data-a="${esc(a)}">${esc(a)} ✕</button>`).join('') || '<span class="muted small">Aucun pour l’instant</span>'}</div>
+    <div class="row" style="gap:8px;margin-top:10px"><input id="rs-a" placeholder="Suivre un auteur (ex. Rebecca Yarros)" style="flex:1;border:1.5px solid var(--line);background:var(--surface);border-radius:14px;padding:11px 12px;font-size:15px"><button class="btn sm primary" id="rs-add">Suivre</button></div>
+    <button class="btn accent block" style="margin-top:20px" id="rs-scan">📡 Chercher les sorties maintenant</button>
+    ${r.hidden.length ? `<button class="btn block" style="margin-top:10px" id="rs-unhide">Réafficher les ${r.hidden.length} sortie${r.hidden.length > 1 ? 's' : ''} masquée${r.hidden.length > 1 ? 's' : ''}</button>` : ''}`);
+  sh.querySelectorAll('[data-t]').forEach(c => c.onclick = () => {
+    const id = c.dataset.t, i = S.settings.interests.indexOf(id);
+    if (i >= 0) S.settings.interests.splice(i, 1); else S.settings.interests.push(id);
+    save(); c.classList.toggle('p', i < 0); c.textContent = (i < 0 ? '✓ ' : '') + tagById(id).e + ' ' + tagById(id).l; render();
+  });
+  sh.querySelector('#rs-newtag').onclick = () => openTagEditor(() => { closeSheet(); openRadarSettings(); });
+  sh.querySelectorAll('[data-a]').forEach(c => c.onclick = () => {
+    const a = c.dataset.a; r.authors = r.authors.filter(x => x !== a); if (!r.removedAuthors.includes(a)) r.removedAuthors.push(a); save(); c.remove();
+  });
+  sh.querySelector('#rs-add').onclick = () => {
+    const a = sh.querySelector('#rs-a').value.trim(); if (!a) return;
+    r.authors.unshift(a); r.removedAuthors = r.removedAuthors.filter(x => x !== a); save(); closeSheet(); openRadarSettings(); toast('Auteur suivi ✓');
+  };
+  sh.querySelector('#rs-scan').onclick = () => { closeSheet(); runRadarUI(); };
+  sh.querySelector('#rs-unhide')?.addEventListener('click', () => { r.hidden = []; save(); closeSheet(); render(); toast('Sorties réaffichées'); });
+}
+function openTagEditor(after) {
+  const sh = openSheet('Nouveau genre', `
+    <div class="field"><label>Nom du genre</label><input id="tg-l" maxlength="24" placeholder="Ex. Cosy fantasy, Thriller, Manga…"></div>
+    <div class="field"><label>Emoji</label><div class="emo">${['🏷', '🔪', '☕', '🌸', '🦄', '🚀', '👻', '🕵️', '📜', '🧛', '🌊', '💀'].map((e, i) => `<button data-e="${e}" class="${i ? '' : 'on'}">${e}</button>`).join('')}</div></div>
+    <div class="field"><label>Mot-clé à chercher (pour le radar)</label><input id="tg-k" placeholder="Ex. cosy fantasy"></div>
+    <button class="btn primary block" id="tg-save">Créer le genre</button>`);
+  let e = '🏷';
+  sh.querySelectorAll('[data-e]').forEach(b => b.onclick = () => { e = b.dataset.e; sh.querySelectorAll('[data-e]').forEach(x => x.classList.toggle('on', x === b)); });
+  sh.querySelector('#tg-save').onclick = () => {
+    const l = sh.querySelector('#tg-l').value.trim(); if (!l) { toast('Donne un nom au genre'); return; }
+    const t = { id: 'c' + uid(), l, e, kw: sh.querySelector('#tg-k').value.trim() || l };
+    S.settings.customTags = (S.settings.customTags || []).concat(t);
+    radarState(); S.settings.interests.push(t.id); save(); closeSheet(); toast('Genre créé ✓'); after && after(t.id);
+  };
+}
+let radarProgress = '';
+async function runRadarUI(silent) {
+  if (radarRunning) return;
+  if (!silent && tab !== 'agenda') { calMonth = null; calDay = null; go('agenda'); }
+  const res = await scanRadar((i, n, j) => {
+    radarProgress = j ? `📡 Recherche ${i + 1}/${n} : ${j.kind === 'author' ? j.q : 'genre « ' + j.q + ' »'}…` : '';
+    const el = document.getElementById('radar-status'); if (el) el.textContent = radarProgress;
+  });
+  radarProgress = '';
+  if (tab === 'agenda' || tab === 'home') render();
+  if (res && (!silent || tab === 'agenda')) toast(res.ok ? `${radarVisible().length} sortie${radarVisible().length > 1 ? 's' : ''} à venir pour toi ✨` : 'Apple Books ne répond pas, réessaie plus tard');
+}
+function maybeAutoRadar() {
+  const r = radarState();
+  if (radarRunning || !navigator.onLine) return;
+  if (!r.scannedAt || Date.now() - r.scannedAt > 24 * 3600e3) runRadarUI(true);
+}
+
 /* ---------- Calendrier des sorties ---------- */
-let calMonth = null, calDay = null;
+let calMonth = null, calDay = null, calTag = '';
 function releases() { return S.books.filter(b => b.releaseDate); }
+/* Entrées du calendrier : mes livres + sorties détectées par le radar */
+function calEntries() {
+  const mine = releases().filter(b => !calTag || calTag === 'mine' || (calTag !== 'radar' && (b.tags || []).includes(calTag)))
+    .map(b => ({ kind: 'book', id: b.id, title: b.title, author: b.author, cover: b.cover, cover2: b.cover2, releaseDate: b.releaseDate, tags: b.tags || [], b }));
+  if (calTag === 'mine' || S.settings.radarOff) return mine;
+  const rad = radarVisible(calTag === 'radar' ? '' : calTag).map(it => ({ kind: 'radar', rk: it.rk, title: it.title, author: it.author, cover: it.cover, releaseDate: it.releaseDate, tags: it.tags || [], it }));
+  return (calTag === 'radar' ? [] : mine).concat(rad);
+}
+function entryRow(e) {
+  const n = daysUntil(e.releaseDate);
+  const open = e.kind === 'book' ? `data-open="${e.id}"` : `data-radar="${e.rk}"`;
+  const badge = e.kind === 'radar' ? `<span class="chip a" style="padding:3px 8px;font-size:11px">✨ ${e.it.why === 'author' ? esc(e.it.whyLabel) : 'Pour toi'}</span>` : '<span class="chip p" style="padding:3px 8px;font-size:11px">💫 Ma wishlist</span>';
+  return `<div class="hist" ${open}>${coverHTML(e, '')}<div style="flex:1;min-width:0"><div style="font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(e.title)}</div>
+    <div class="muted small" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(e.author || '')}</div>
+    <div class="row" style="gap:6px;margin-top:3px;flex-wrap:wrap">${badge}${e.tags.slice(0, 2).map(t => `<span class="muted small">${tagChip(t)}</span>`).join('')}</div></div>
+    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">${n > 0 ? `<span class="chip a">J-${n}</span>` : n === 0 ? '<span class="chip a">🎉</span>' : ''}
+    ${e.kind === 'radar' ? `<button class="pin ${isPinned(e.it) ? 'on' : ''}" data-pin="${e.rk}" aria-label="Épingler">${isPinned(e.it) ? '★' : '☆'}</button>` : ''}</div></div>`;
+}
 function viewAgenda() {
-  const now = new Date();
-  if (!calMonth) { const next = releases().map(b => b.releaseDate).filter(d => d >= dayKey()).sort()[0]; const d = next ? new Date(next + 'T00:00:00') : now; calMonth = [d.getFullYear(), d.getMonth()]; }
+  const now = new Date(), r = radarState();
+  const entries = calEntries();
+  if (!calMonth) { const next = entries.map(e => e.releaseDate).filter(d => d >= dayKey()).sort()[0]; const d = next ? new Date(next + 'T00:00:00') : now; calMonth = [d.getFullYear(), d.getMonth()]; }
   const [y, m] = calMonth;
   const first = new Date(y, m, 1), days = new Date(y, m + 1, 0).getDate();
   const offset = (first.getDay() + 6) % 7;
   const byDay = {};
-  for (const b of releases()) { const d = new Date(b.releaseDate + 'T00:00:00'); if (d.getFullYear() === y && d.getMonth() === m) (byDay[d.getDate()] ||= []).push(b); }
+  for (const e of entries) { const d = new Date(e.releaseDate + 'T00:00:00'); if (d.getFullYear() === y && d.getMonth() === m) (byDay[d.getDate()] ||= []).push(e); }
+  for (const k in byDay) byDay[k].sort((a, b) => (a.kind === 'book' ? 0 : isPinned(a.it) ? 1 : 2) - (b.kind === 'book' ? 0 : isPinned(b.it) ? 1 : 2));
   const title = first.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
   const todayK = dayKey();
   let cells = '';
   for (let i = 0; i < offset; i++) cells += '<div class="cday empty"></div>';
   for (let d = 1; d <= days; d++) {
     const k = dayKey(new Date(y, m, d)), l = byDay[d] || [];
-    cells += `<button class="cday ${k === todayK ? 'today' : ''} ${l.length ? 'has' : ''} ${calDay === k ? 'sel' : ''}" data-day="${k}">
+    const onlyRadar = l.length && l.every(e => e.kind === 'radar');
+    cells += `<button class="cday ${k === todayK ? 'today' : ''} ${l.length ? 'has' : ''} ${onlyRadar ? 'rad' : ''} ${calDay === k ? 'sel' : ''}" data-day="${k}">
       ${l.length ? `<div class="ccov">${coverHTML(l[0], '')}</div>${l.length > 1 ? `<span class="cmore">+${l.length - 1}</span>` : ''}` : ''}<span class="cnum">${d}</span></button>`;
   }
-  const monthList = Object.keys(byDay).sort((a, b) => a - b).flatMap(d => byDay[d]);
-  const list = calDay ? releases().filter(b => b.releaseDate === calDay) : monthList;
-  const upcoming = releases().filter(b => b.releaseDate >= todayK).sort((a, b) => a.releaseDate.localeCompare(b.releaseDate));
-  let h = `<div class="page-h"><h1>Sorties</h1><button class="chip p" id="cal-add">＋ Ajouter</button></div>
-  <div class="card cal">
+  const fromK = dayKey(new Date(y, m, 1)) > todayK ? dayKey(new Date(y, m, 1)) : todayK;
+  const monthList = entries.filter(e => e.releaseDate >= fromK).sort((a, b) => a.releaseDate.localeCompare(b.releaseDate) || (a.kind === 'book' ? -1 : 1)).slice(0, 40);
+  const list = calDay ? entries.filter(e => e.releaseDate === calDay) : monthList;
+  const upcoming = entries.filter(e => e.releaseDate >= todayK).sort((a, b) => a.releaseDate.localeCompare(b.releaseDate));
+  const interests = allTags().filter(t => S.settings.interests.includes(t.id));
+  const filters = [['', 'Tout'], ['mine', '💫 Mes livres'], ['radar', '✨ Détectées']].concat(interests.map(t => [t.id, t.e + ' ' + t.l]));
+  const scanned = r.scannedAt ? 'Mis à jour ' + fmtDate(r.scannedAt, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'Jamais lancé';
+  let h = `<div class="page-h"><h1>Sorties</h1><div class="row" style="gap:6px"><button class="chip" id="cal-set">⚙️ Envies</button><button class="chip p" id="cal-add">＋</button></div></div>
+  <div class="card radar-bar"><div style="font-size:22px">📡</div><div style="flex:1;min-width:0"><div style="font-weight:700;font-size:14px">Radar des sorties</div>
+    <div class="muted small" id="radar-status">${radarProgress || (radarRunning ? 'Recherche…' : `${radarVisible().length} à venir · ${scanned}`)}</div></div>
+    <button class="btn sm primary" id="cal-scan" ${radarRunning ? 'disabled' : ''}>${radarRunning ? '⏳' : '↻'}</button></div>
+  <div class="hscroll shelfchips" style="margin-top:12px">${filters.map(([k, l]) => `<button class="chip ${calTag === k ? 'p on' : ''}" data-ctag="${k}">${l}</button>`).join('')}</div>
+  <div class="card cal" style="margin-top:12px">
     <div class="row" style="margin-bottom:10px"><button class="btn sm" id="cal-prev">‹</button><div style="flex:1;text-align:center;font-weight:700;text-transform:capitalize;font-family:var(--serif);font-size:18px">${title}</div><button class="btn sm" id="cal-next">›</button></div>
     <div class="cgrid chead">${['L', 'M', 'M', 'J', 'V', 'S', 'D'].map(x => `<div>${x}</div>`).join('')}</div>
     <div class="cgrid">${cells}</div>
-    ${upcoming.length ? `<button class="link" id="cal-today" style="margin-top:10px">Aller à la prochaine sortie</button>` : ''}
+    <div class="row" style="margin-top:10px;gap:12px;flex-wrap:wrap"><span class="muted small"><i class="lg lg-b"></i> Mes livres</span><span class="muted small"><i class="lg lg-r"></i> Détectées</span><span class="spacer"></span>
+    ${upcoming.length ? `<button class="link small" id="cal-today">Prochaine sortie →</button>` : ''}</div>
   </div>
-  <div class="section"><div class="section-h"><h2>${calDay ? fmtDate(calDay + 'T00:00:00', { weekday: 'long', day: 'numeric', month: 'long' }) : 'Ce mois-ci'}</h2>${calDay ? '<button class="link" id="cal-all">Tout le mois</button>' : ''}</div>`;
-  if (!list.length) h += `<div class="card muted small" style="text-align:center;padding:20px">${releases().length ? 'Aucune sortie prévue ' + (calDay ? 'ce jour-là' : 'ce mois-ci') + '.' : 'Ajoute une date de sortie à un livre de ta wishlist (✎ Modifier la fiche) pour le voir apparaître ici.'}</div>`;
-  else h += `<div class="card">` + list.map(b => { const n = daysUntil(b.releaseDate); return `<div class="hist" data-open="${b.id}">${coverHTML(b, '')}<div style="flex:1;min-width:0"><div style="font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(b.title)}</div><div class="muted small">${esc(b.author || '')}</div><div class="muted small">${releaseLabel(b)}</div></div>${n > 0 ? `<span class="chip a">J-${n}</span>` : n === 0 ? '<span class="chip a">🎉</span>' : ''}</div>`; }).join('') + `</div>`;
-  h += `</div>`;
+  <div class="section"><div class="section-h"><h2>${calDay ? fmtDate(calDay + 'T00:00:00', { weekday: 'long', day: 'numeric', month: 'long' }) : 'À venir'}</h2>${calDay ? '<button class="link" id="cal-all">Tout le mois</button>' : `<span class="muted small">${list.length}</span>`}</div>`;
+  if (!list.length) h += `<div class="card muted small" style="text-align:center;padding:20px">${entries.length ? 'Aucune sortie ' + (calDay ? 'ce jour-là' : 'à venir') + '.' : 'Lance le radar ↻ pour voir les sorties à venir de tes genres et auteurs préférés.'}</div>`;
+  else {
+    let lastM = '';
+    h += `<div class="card">` + list.map(e => { const mk = e.releaseDate.slice(0, 7); const head = !calDay && mk !== lastM ? `<div class="mhead">${new Date(e.releaseDate + 'T00:00:00').toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })}</div>` : ''; lastM = mk; return head + entryRow(e); }).join('') + `</div>`;
+  }
+  h += `<p class="muted small" style="text-align:center;margin-top:12px">★ = épinglé sur l’accueil · Les sorties détectées viennent d’Apple Books (ebooks).</p></div>`;
   setTimeout(() => {
     const mv = d => { let [yy, mm] = calMonth; mm += d; if (mm < 0) { mm = 11; yy--; } if (mm > 11) { mm = 0; yy++; } calMonth = [yy, mm]; calDay = null; render(); };
     document.getElementById('cal-prev').onclick = () => mv(-1);
     document.getElementById('cal-next').onclick = () => mv(1);
     document.getElementById('cal-add').onclick = () => openAdd();
+    document.getElementById('cal-set').onclick = () => openRadarSettings();
+    document.getElementById('cal-scan').onclick = () => runRadarUI();
     document.getElementById('cal-all')?.addEventListener('click', () => { calDay = null; render(); });
     document.getElementById('cal-today')?.addEventListener('click', () => { const d = new Date(upcoming[0].releaseDate + 'T00:00:00'); calMonth = [d.getFullYear(), d.getMonth()]; calDay = upcoming[0].releaseDate; render(); });
+    document.querySelectorAll('[data-ctag]').forEach(x => x.onclick = () => { calTag = x.dataset.ctag; calMonth = null; calDay = null; render(); });
     document.querySelectorAll('[data-day]').forEach(x => x.onclick = () => {
-      const l = releases().filter(b => b.releaseDate === x.dataset.day);
-      if (l.length === 1 && calDay === x.dataset.day) { openBook(l[0].id); return; }
+      const l = entries.filter(e => e.releaseDate === x.dataset.day);
+      if (l.length === 1 && calDay === x.dataset.day) { l[0].kind === 'book' ? openBook(l[0].id) : openRadarItem(l[0].rk); return; }
       calDay = calDay === x.dataset.day ? null : x.dataset.day; render();
     });
-    // balayer pour changer de mois
+    bindRadar(document.getElementById('view'));
     const g = document.querySelector('.cal'); let sx = null;
     g.addEventListener('touchstart', e => sx = e.touches[0].clientX, { passive: true });
     g.addEventListener('touchend', e => { if (sx === null) return; const dx = e.changedTouches[0].clientX - sx; if (Math.abs(dx) > 60) mv(dx < 0 ? 1 : -1); sx = null; });
+    maybeAutoRadar();
   });
   return h;
+}
+function bindRadar(root) {
+  root.querySelectorAll('[data-radar]').forEach(x => x.onclick = ev => { ev.stopPropagation(); openRadarItem(x.dataset.radar); });
+  root.querySelectorAll('[data-pin]').forEach(x => x.onclick = ev => { ev.stopPropagation(); const it = radarByKey(x.dataset.pin); if (!it) return; const p = togglePin(it); toast(p ? 'Épinglé sur l’accueil ★' : 'Retiré de l’accueil'); render(); });
 }
 
 /* ---------- Statistiques ---------- */
 function dayTotals() {
   const m = {};
-  for (const l of S.logs) { const k = l.date; (m[k] ||= { pages: 0, sec: 0 }); m[k].pages += l.pages || 0; m[k].sec += l.seconds || 0; }
+  for (const l of S.logs) { const k = l.date; (m[k] ||= { pages: 0, sec: 0, min: 0, ch: 0 }); const u = l.unit || 'p'; if (u === 'p') m[k].pages += l.pages || 0; else m[k][u] += l.pages || 0; m[k].sec += l.seconds || 0; }
   return m;
 }
 function streak() {
   const m = dayTotals(); let n = 0; const d = new Date();
   if (!m[dayKey(d)]) d.setDate(d.getDate() - 1);
-  while (m[dayKey(d)] && (m[dayKey(d)].pages > 0 || m[dayKey(d)].sec > 0)) { n++; d.setDate(d.getDate() - 1); }
+  while (m[dayKey(d)] && (m[dayKey(d)].pages > 0 || m[dayKey(d)].sec > 0 || m[dayKey(d)].min > 0 || m[dayKey(d)].ch > 0)) { n++; d.setDate(d.getDate() - 1); }
   return n;
 }
 function ring(value, max, size = 64, stroke = 7, label) {
@@ -585,7 +886,7 @@ function ring(value, max, size = 64, stroke = 7, label) {
 }
 
 /* ---------- Navigation ---------- */
-let tab = 'home', libFilter = 'reading', libQuery = '';
+let tab = 'home', libFilter = 'reading', libQuery = '', libFmt = '', libTag = '';
 function go(t) { tab = t; render(); window.scrollTo(0, 0); }
 document.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => go(b.dataset.tab));
 document.getElementById('fab').onclick = () => openAdd();
@@ -600,12 +901,12 @@ function bindView(root) {
   root.querySelectorAll('[data-open]').forEach(e => e.onclick = ev => { ev.stopPropagation(); openBook(e.dataset.open); });
   root.querySelectorAll('[data-progress]').forEach(e => e.onclick = ev => { ev.stopPropagation(); openProgress(e.dataset.progress); });
   root.querySelectorAll('[data-session]').forEach(e => e.onclick = ev => { ev.stopPropagation(); startSession(e.dataset.session); });
-  root.querySelectorAll('[data-go]').forEach(e => e.onclick = ev => { ev.stopPropagation(); if (e.dataset.filter) libFilter = e.dataset.filter; if (e.dataset.go === 'agenda') { calMonth = null; calDay = null; } go(e.dataset.go); });
+  root.querySelectorAll('[data-go]').forEach(e => e.onclick = ev => { ev.stopPropagation(); if (e.dataset.filter) libFilter = e.dataset.filter; if (e.dataset.fmt !== undefined) { libFmt = e.dataset.fmt; libTag = ''; } if (e.dataset.go === 'agenda') { calMonth = null; calDay = null; } go(e.dataset.go); });
 }
 
 /* ---------- Accueil ---------- */
 function viewHome() {
-  const today = dayTotals()[dayKey()] || { pages: 0, sec: 0 };
+  const today = dayTotals()[dayKey()] || { pages: 0, sec: 0, min: 0, ch: 0 };
   const goal = +S.settings.dailyGoal || 20;
   const reading = S.books.filter(b => b.status === 'reading').sort((a, b) => (b.lastReadAt || b.addedAt) - (a.lastReadAt || a.addedAt));
   const toread = palList();
@@ -618,7 +919,7 @@ function viewHome() {
     <div class="hero-top"><div><div class="brand">La Bulle de Kiria</div><h1>${hello} ${esc(S.settings.name)} ✨</h1><div class="date">${dateStr}</div></div></div>
     <div class="goal">${ring(today.pages, goal, 66, 7)}
       <div class="txt"><div class="muted small" style="font-weight:600">Objectif du jour</div><div><b>${today.pages}</b> <span class="muted">/ ${goal} pages</span></div>
-      <div class="chips">${st ? `<span class="chip a">🔥 ${st} jour${st > 1 ? 's' : ''}</span>` : ''}<span class="chip p">⏱ ${fmtDur(today.sec, true)}</span></div></div></div>
+      <div class="chips">${st ? `<span class="chip a">🔥 ${st} jour${st > 1 ? 's' : ''}</span>` : ''}<span class="chip p">⏱ ${fmtDur(today.sec, true)}</span>${today.min ? `<span class="chip p">🎧 ${fmtMin(today.min)}</span>` : ''}${today.ch ? `<span class="chip p">🖼 ${today.ch} ch.</span>` : ''}</div></div></div>
   </header>`;
 
   if (!S.books.length) {
@@ -632,24 +933,34 @@ function viewHome() {
     h += `<div class="card reading-card" data-open="${b.id}">${coverHTML(b, 'c-md')}
       <div class="info"><div class="title">${esc(b.title)}</div><div class="author">${esc(b.author || 'Auteur inconnu')}</div>
       <div class="bar"><i style="width:${pct(b)}%"></i></div>
-      <div class="row small muted" style="margin-top:6px"><span>${b.pages ? `p. ${b.currentPage || 0} / ${b.pages}` : 'Pages inconnues'}</span><span class="spacer"></span><b style="color:var(--ink)">${pct(b)}%</b></div>
-      <div class="actions"><button class="btn sm primary" data-session="${b.id}">▶ Session</button><button class="btn sm" data-progress="${b.id}">＋ Pages</button></div></div></div>`;
+      <div class="row small muted" style="margin-top:6px"><span>${progLabel(b)}</span><span class="spacer"></span>${b.pages ? `<b style="color:var(--ink)">${pct(b)}%</b>` : ''}</div>
+      <div class="actions"><button class="btn sm primary" data-session="${b.id}">${unitOf(b) === 'min' ? '🎧 Écouter' : '▶ Session'}</button><button class="btn sm" data-progress="${b.id}">${fmtOf(b).add}</button></div></div></div>`;
   }
   h += `</section>`;
-  if (toread.length) {
-    h += `<section class="section"><div class="section-h"><h2>Ma PAL</h2><button class="link" data-go="library" data-filter="toread">Tout voir</button></div><div class="hscroll">`;
-    toread.slice(0, 10).forEach((b, i) => h += `<div class="mini" data-open="${b.id}">${coverHTML(b, '')}<div class="t">${i + 1}. ${esc(b.title)}</div></div>`);
+  const palBooks = toread.filter(b => b.format !== 'audio'), palAudio = toread.filter(b => b.format === 'audio');
+  if (palBooks.length) {
+    h += `<section class="section"><div class="section-h"><h2>Ma PAL</h2><button class="link" data-go="library" data-filter="toread" data-fmt="">Tout voir</button></div><div class="hscroll">`;
+    palBooks.slice(0, 10).forEach((b, i) => h += `<div class="mini" data-open="${b.id}">${coverHTML(b, '')}<div class="t">${i + 1}. ${esc(b.title)}</div></div>`);
     h += `</div></section>`;
   }
-  if (wish.length) {
-    h += `<section class="section"><div class="section-h"><h2>Prochaines sorties</h2><button class="link" data-go="agenda">📅 Calendrier</button></div><div class="card">`;
-    for (const b of wish.slice(0, 4)) {
-      const n = daysUntil(b.releaseDate);
-      h += `<div class="hist" data-open="${b.id}">${coverHTML(b, '')}<div style="flex:1;min-width:0"><div style="font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(b.title)}</div><div class="muted small">${releaseLabel(b)}</div></div>${n !== null && n >= 0 ? `<span class="chip a">J-${n}</span>` : ''}</div>`;
-    }
+  if (palAudio.length) {
+    h += `<section class="section"><div class="section-h"><h2>🎧 Ma playlist audio</h2><button class="link" data-go="library" data-filter="toread" data-fmt="audio">Tout voir</button></div><div class="hscroll">`;
+    palAudio.slice(0, 10).forEach((b, i) => h += `<div class="mini" data-open="${b.id}">${coverHTML(b, '')}<div class="t">${i + 1}. ${esc(b.title)}</div>${b.pages ? `<div class="muted small">${fmtMin(b.pages)}</div>` : ''}</div>`);
     h += `</div></section>`;
   }
-  if (!wish.length && releases().length) h += `<section class="section"><div class="section-h"><h2>Sorties</h2><button class="link" data-go="agenda">📅 Calendrier</button></div></section>`;
+  const upc = wish.filter(b => !b.releaseDate || daysUntil(b.releaseDate) >= -7).map(b => ({ kind: 'book', id: b.id, title: b.title, author: b.author, cover: b.cover, cover2: b.cover2, format: b.format, releaseDate: b.releaseDate, tags: b.tags || [], b }))
+    .concat(radarVisible().filter(isPinned).map(it => ({ kind: 'radar', rk: it.rk, title: it.title, author: it.author, cover: it.cover, releaseDate: it.releaseDate, tags: it.tags || [], it })))
+    .sort((a, b) => (a.releaseDate || '9999').localeCompare(b.releaseDate || '9999'));
+  const detected = radarVisible().filter(it => !isPinned(it)).length;
+  h += `<section class="section"><div class="section-h"><h2>Sorties à ne pas manquer</h2><button class="link" data-go="agenda">📅 Calendrier</button></div>`;
+  if (upc.length) {
+    h += `<div class="hscroll">` + upc.slice(0, 12).map(e => { const n = daysUntil(e.releaseDate); return `<div class="mini rel" ${e.kind === 'book' ? `data-open="${e.id}"` : `data-radar="${e.rk}"`}>${coverHTML(e, '')}
+      ${n !== null && n >= 0 ? `<span class="jbadge">${n === 0 ? '🎉 Auj.' : 'J-' + n}</span>` : ''}${e.kind === 'radar' ? '<span class="sbadge">★</span>' : ''}
+      <div class="t">${esc(e.title)}</div><div class="muted small">${e.releaseDate ? fmtDate(e.releaseDate + 'T00:00:00', { day: 'numeric', month: 'short' }) : 'Date ?'}</div></div>`; }).join('') + `</div>`;
+  }
+  if (detected) h += `<button class="card radar-hint" data-go="agenda"><span style="font-size:20px">✨</span><span style="flex:1;text-align:left"><b>${detected} sortie${detected > 1 ? 's' : ''} détectée${detected > 1 ? 's' : ''} pour toi</b><br><span class="muted small">Touche ☆ dans le calendrier pour les épingler ici</span></span><span class="muted">›</span></button>`;
+  else if (!upc.length) h += `<button class="card radar-hint" data-go="agenda"><span style="font-size:20px">📡</span><span style="flex:1;text-align:left"><b>Radar des sorties</b><br><span class="muted small">Découvre les futures sorties de tes genres préférés</span></span><span class="muted">›</span></button>`;
+  h += `</section>`;
   const lastRead = S.books.filter(b => b.status === 'read').sort((a, b) => (b.finishedAt || 0) - (a.finishedAt || 0));
   if (lastRead.length) {
     h += `<section class="section"><div class="section-h"><h2>Dernières lectures</h2><button class="link" data-go="library" data-filter="read">Tout voir</button></div><div class="hscroll">`;
@@ -664,7 +975,7 @@ function viewHome() {
       ${sh.kind === 'challenge' ? `<div class="bar" style="height:5px;margin-top:6px"><i style="width:${p.pct}%"></i></div>` : ''}</div>`; }
     h += `</div></section>`;
   }
-  setTimeout(() => document.getElementById('home-newshelf')?.addEventListener('click', () => openShelfEditor(null)));
+  setTimeout(() => { document.getElementById('home-newshelf')?.addEventListener('click', () => openShelfEditor(null)); bindRadar(document.getElementById('view')); });
   const recent = [...S.logs].sort((a, b) => b.at - a.at).slice(0, 4);
   if (recent.length) {
     h += `<section class="section"><div class="section-h"><h2>Activité récente</h2></div><div class="card">`;
@@ -674,18 +985,20 @@ function viewHome() {
   return h;
 }
 function histRow(l, title) {
-  const ic = l.type === 'session' ? '⏱' : l.type === 'finish' ? '🏁' : '📖';
-  const what = [l.pages ? `${l.pages} page${l.pages > 1 ? 's' : ''}` : '', l.seconds ? fmtDur(l.seconds) : ''].filter(Boolean).join(' · ') || (l.type === 'finish' ? 'Livre terminé' : '—');
+  const u = l.unit || 'p';
+  const ic = l.type === 'finish' ? '🏁' : u === 'min' ? '🎧' : u === 'ch' ? '🖼' : l.type === 'session' ? '⏱' : '📖';
+  const what = [l.pages ? qtyLabel(l.pages, u) : '', l.seconds && u !== 'min' ? fmtDur(l.seconds) : ''].filter(Boolean).join(' · ') || (l.type === 'finish' ? 'Livre terminé' : l.seconds ? fmtDur(l.seconds) : '—');
   return `<div class="hist"><div class="dot">${ic}</div><div style="flex:1;min-width:0">${title ? `<div style="font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(title)}</div>` : ''}<div class="muted small">${what}</div></div><div class="muted small">${fmtDate(l.at)}</div></div>`;
 }
 
 /* ---------- Bibliothèque ---------- */
 function viewLibrary() {
-  const counts = { reading: 0, toread: 0, wish: 0, read: 0 }; S.books.forEach(b => counts[b.status]++);
+  const counts = { reading: 0, toread: 0, wish: 0, read: 0 }; S.books.forEach(b => { if ((!libFmt || (b.format || 'paper') === libFmt) && (!libTag || (b.tags || []).includes(libTag))) counts[b.status]++; });
   const q = libQuery.trim().toLowerCase();
   if (libFilter.startsWith('shelf:') && !shelf(libFilter.slice(6))) libFilter = 'toread';
   const curShelf = libFilter.startsWith('shelf:') ? shelf(libFilter.slice(6)) : null;
-  let list = S.books.filter(b => b.status === libFilter && (!q || (b.title + ' ' + (b.author || '')).toLowerCase().includes(q)));
+  const pass = b => (!libFmt || (b.format || 'paper') === libFmt) && (!libTag || (b.tags || []).includes(libTag));
+  let list = S.books.filter(b => b.status === libFilter && pass(b) && (!q || (b.title + ' ' + (b.author || '')).toLowerCase().includes(q)));
   if (libFilter === 'toread') list = palList().filter(b => list.includes(b));
   else if (libFilter === 'wish') list.sort((a, b) => (a.releaseDate || '9999').localeCompare(b.releaseDate || '9999'));
   else list.sort((a, b) => libFilter === 'read' ? (b.finishedAt || 0) - (a.finishedAt || 0) : (b.lastReadAt || b.addedAt) - (a.lastReadAt || a.addedAt));
@@ -694,6 +1007,8 @@ function viewLibrary() {
     <div class="seg">${Object.keys(lbl).map(k => `<button class="${k === libFilter ? 'on' : ''}" onclick="libFilter='${k}';render()">${lbl[k]}<span class="n">${counts[k]}</span></button>`).join('')}</div>
     <div class="hscroll shelfchips">${S.shelves.map(sh => `<button class="chip ${curShelf === sh ? 'p on' : ''}" onclick="libFilter='shelf:${sh.id}';render()">${sh.emoji} ${esc(sh.name)} <span class="n">${(sh.books || []).length}</span></button>`).join('')}
       <button class="chip" id="lib-newshelf">＋ Nouvelle pile</button></div>
+    ${curShelf ? '' : `<div class="hscroll shelfchips filt">${[['', 'Tous formats']].concat(Object.entries(FORMATS).filter(([k]) => S.books.some(b => (b.format || 'paper') === k) || k === 'audio' || k === 'webtoon').map(([k, f]) => [k, f.e + ' ' + (k === 'audio' && libFilter === 'toread' ? 'Playlist audio' : f.l)])).map(([k, l]) => `<button class="chip ${libFmt === k ? 'p on' : ''}" onclick="libFmt='${k}';render()">${l}</button>`).join('')}
+      <span class="sep"></span>${allTags().filter(t => S.books.some(b => (b.tags || []).includes(t.id))).map(t => `<button class="chip ${libTag === t.id ? 'p on' : ''}" onclick="libTag=libTag==='${t.id}'?'':'${t.id}';render()">${t.e} ${esc(t.l)}</button>`).join('')}</div>`}
     <label class="search"><span class="muted">🔍</span><input id="libq" placeholder="Filtrer par titre ou auteur" value="${esc(libQuery)}"></label>`;
   setTimeout(() => document.getElementById('lib-newshelf')?.addEventListener('click', () => openShelfEditor(null)));
   if (curShelf) {
@@ -702,9 +1017,9 @@ function viewLibrary() {
     const msg = { reading: 'Aucune lecture en cours', toread: 'Ta PAL est vide', wish: 'Ta wishlist est vide', read: 'Aucun livre terminé pour l’instant' }[libFilter];
     h += `<div class="empty"><div class="bubble">${libFilter === 'read' ? '🏆' : '🫧'}</div><h3>${q ? 'Aucun résultat' : msg}</h3>${q ? '' : '<button class="btn accent" onclick="openAdd()" style="margin-top:8px">＋ Ajouter un livre</button>'}</div>`;
   } else if (libFilter === 'toread') {
-    h += `<p class="muted small" style="margin:0 0 10px">Ta pile à lire, dans l’ordre où tu veux les lire. Utilise ↑ ↓ pour la réorganiser.</p><div class="card">` + list.map((b, i) => `<div class="hist" data-open="${b.id}">
+    h += `<p class="muted small" style="margin:0 0 10px">${libFmt === 'audio' ? '🎧 Ta playlist de livres audio' : 'Ta pile à lire'}, dans l’ordre où tu veux les ${libFmt === 'audio' ? 'écouter' : 'lire'}. Utilise ↑ ↓ pour la réorganiser.</p><div class="card">` + list.map((b, i) => `<div class="hist" data-open="${b.id}">
       <b style="width:22px;text-align:center;color:var(--primary)">${i + 1}</b>${coverHTML(b, '')}
-      <div style="flex:1;min-width:0"><div style="font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(b.title)}</div><div class="muted small">${esc(b.author || '')}</div></div>
+      <div style="flex:1;min-width:0"><div style="font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(b.title)}</div><div class="muted small">${esc(b.author || '')}${b.format === 'audio' && b.pages ? ' · ' + fmtMin(b.pages) : ''}</div></div>
       <button class="btn sm" data-mv="-1" data-id="${b.id}" ${i === 0 ? 'disabled style="opacity:.3"' : ''}>↑</button><button class="btn sm" data-mv="1" data-id="${b.id}" ${i === list.length - 1 ? 'disabled style="opacity:.3"' : ''}>↓</button></div>`).join('') + `</div>`;
   } else {
     h += `<div class="grid">` + list.map(b => `<div class="gitem" data-open="${b.id}">${coverHTML(b, '')}
@@ -715,7 +1030,8 @@ function viewLibrary() {
   }
   if (libFilter === 'wish' && !curShelf) h = h.replace('<div class="grid">', '<button class="btn block" style="margin-bottom:14px" data-go="agenda">📅 Voir le calendrier des sorties</button><div class="grid">');
   setTimeout(() => {
-    document.querySelectorAll('[data-mv]').forEach(x => x.onclick = e => { e.stopPropagation(); movePal(x.dataset.id, +x.dataset.mv); });
+    const vis = list.map(b => b.id);
+    document.querySelectorAll('[data-mv]').forEach(x => x.onclick = e => { e.stopPropagation(); movePal(x.dataset.id, +x.dataset.mv, vis); });
     const i = document.getElementById('libq'); if (!i) return;
     i.oninput = () => { libQuery = i.value; const pos = i.selectionStart; render(); const n = document.getElementById('libq'); n.focus(); n.setSelectionRange(pos, pos); };
   });
@@ -723,67 +1039,121 @@ function viewLibrary() {
 }
 
 /* ---------- Statistiques ---------- */
-function viewStats() {
-  const m = dayTotals();
-  const totalPages = S.logs.reduce((a, l) => a + (l.pages || 0), 0);
-  const totalSec = S.logs.reduce((a, l) => a + (l.seconds || 0), 0);
-  const read = S.books.filter(b => b.status === 'read');
-  const sesPages = S.logs.filter(l => l.type === 'session' && l.seconds > 60);
-  const pace = sesPages.reduce((a, l) => a + l.pages, 0) / (sesPages.reduce((a, l) => a + l.seconds, 0) / 3600 || 1);
-  let h = `<div class="page-h"><h1>Statistiques</h1></div>
-  <div class="kpis">
-    <div class="kpi"><div class="ic">📚</div><div class="v">${read.length}</div><div class="l">Livres lus</div></div>
-    <div class="kpi"><div class="ic">📖</div><div class="v">${totalPages.toLocaleString('fr-FR')}</div><div class="l">Pages lues</div></div>
-    <div class="kpi"><div class="ic">⏱</div><div class="v">${fmtDur(totalSec, true)}</div><div class="l">Temps de lecture</div></div>
-    <div class="kpi"><div class="ic">🔥</div><div class="v">${streak()} j</div><div class="l">Série en cours</div></div>
-  </div>`;
-  // 14 derniers jours
-  const days = []; for (let i = 13; i >= 0; i--) { const d = new Date(); d.setDate(d.getDate() - i); days.push(d); }
-  const vals = days.map(d => (m[dayKey(d)] || {}).pages || 0);
-  const goal = +S.settings.dailyGoal || 0;
-  const max = Math.max(goal, ...vals, 10);
-  const W = 340, H = 150, pb = 22, bw = W / 14;
-  let bars = '';
+let statsPeriod = 'year';
+function barChart(vals, labels, opts = {}) {
+  const W = 340, H = opts.h || 150, pb = 22, n = vals.length, bw = W / n;
+  const max = Math.max(opts.goal || 0, ...vals, opts.min || 10);
+  let s = '';
   vals.forEach((v, i) => {
-    const bh = v / max * (H - pb - 10); const x = i * bw + bw * .18, w = bw * .64;
-    bars += `<rect x="${x}" y="${H - pb - bh}" width="${w}" height="${Math.max(bh, v ? 3 : 0)}" rx="${w / 2.6}" fill="url(#bg)"/>`;
-    if (i % 2 === 1 || i === 13) bars += `<text x="${x + w / 2}" y="${H - 6}" text-anchor="middle" font-size="10">${i === 13 ? 'auj.' : days[i].getDate()}</text>`;
+    const bh = v / max * (H - pb - 14); const x = i * bw + bw * .18, w = bw * .64;
+    s += `<rect x="${x}" y="${H - pb - bh}" width="${w}" height="${Math.max(bh, v ? 3 : 0)}" rx="${Math.min(8, w / 2.6)}" fill="${opts.color || 'url(#bg)'}"/>`;
+    if (opts.values && v) s += `<text x="${x + w / 2}" y="${H - pb - bh - 4}" text-anchor="middle" font-size="10.5" style="fill:var(--ink);font-weight:700">${opts.fmt ? opts.fmt(v) : v}</text>`;
+    if (labels[i]) s += `<text x="${x + w / 2}" y="${H - 6}" text-anchor="middle" font-size="10">${labels[i]}</text>`;
   });
-  const gy = H - pb - goal / max * (H - pb - 10);
-  h += `<div class="card chart-card"><h3>Pages par jour</h3><div class="muted small">14 derniers jours · ${vals.reduce((a, b) => a + b, 0)} pages</div>
-    <svg viewBox="0 0 ${W} ${H}" width="100%" style="margin-top:10px"><defs><linearGradient id="bg" x1="0" y1="1" x2="0" y2="0"><stop offset="0" stop-color="var(--primary)"/><stop offset="1" stop-color="var(--accent)"/></linearGradient></defs>
+  const gy = opts.goal ? H - pb - opts.goal / max * (H - pb - 14) : 0;
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" style="margin-top:10px"><defs><linearGradient id="bg" x1="0" y1="1" x2="0" y2="0"><stop offset="0" stop-color="var(--primary)"/><stop offset="1" stop-color="var(--accent)"/></linearGradient></defs>
     <line x1="0" x2="${W}" y1="${H - pb}" y2="${H - pb}" stroke="var(--line)"/>
-    ${goal ? `<line x1="0" x2="${W}" y1="${gy}" y2="${gy}" stroke="var(--accent)" stroke-dasharray="4 4" opacity=".6"/><text x="2" y="${gy - 4}" font-size="10">objectif ${goal} p.</text>` : ''}
-    ${bars}</svg></div>`;
-  // heatmap 12 semaines
-  const start = new Date(); start.setDate(start.getDate() - 83 - ((start.getDay() + 6) % 7 === 6 ? 0 : 0));
-  const offset = (start.getDay() + 6) % 7; start.setDate(start.getDate() - offset);
+    ${opts.goal ? `<line x1="0" x2="${W}" y1="${gy}" y2="${gy}" stroke="var(--accent)" stroke-dasharray="4 4" opacity=".6"/><text x="2" y="${gy - 4}" font-size="10">${opts.goalLabel || 'objectif'}</text>` : ''}${s}</svg>`;
+}
+function hbars(rows) {
+  const max = Math.max(1, ...rows.map(r => r.v));
+  return rows.map(r => `<div class="hb"><div class="hb-l">${r.l}</div><div class="hb-t"><i style="width:${Math.max(4, r.v / max * 100)}%;${r.c ? 'background:' + r.c : ''}"></i></div><div class="hb-v">${r.t ?? r.v}</div></div>`).join('');
+}
+function viewStats() {
+  const year = new Date().getFullYear();
+  const since = statsPeriod === 'year' ? new Date(year, 0, 1).getTime() : statsPeriod === 'month' ? new Date(year, new Date().getMonth(), 1).getTime() : 0;
+  const logs = S.logs.filter(l => l.at >= since);
+  const sum = (u, k = 'pages') => logs.filter(l => (l.unit || 'p') === u).reduce((a, l) => a + (l[k] || 0), 0);
+  const pages = sum('p'), minutes = sum('min'), chapters = sum('ch');
+  const readSec = logs.filter(l => (l.unit || 'p') !== 'min').reduce((a, l) => a + (l.seconds || 0), 0);
+  const read = S.books.filter(b => b.status === 'read' && (b.finishedAt || 0) >= since);
+  const allRead = S.books.filter(b => b.status === 'read');
+  const yearRead = allRead.filter(b => b.finishedAt && new Date(b.finishedAt).getFullYear() === year).length;
+  const goal = +S.settings.yearGoal || 0;
+  const m = dayTotals();
+  const per = { year: 'Cette année', month: 'Ce mois-ci', all: 'Depuis le début' };
+  let h = `<div class="page-h"><h1>Statistiques</h1></div>
+  <div class="seg" style="margin-bottom:14px">${Object.keys(per).map(k => `<button class="${k === statsPeriod ? 'on' : ''}" onclick="statsPeriod='${k}';render()">${per[k]}</button>`).join('')}</div>`;
+  // Défi de l'année
+  h += `<div class="card row" style="gap:16px;margin-bottom:14px">${ring(yearRead, goal || Math.max(yearRead, 1), 78, 8, goal ? undefined : String(yearRead))}
+    <div style="flex:1"><div class="muted small" style="font-weight:650">Défi lecture ${year}</div>
+    <div style="font-size:20px;font-weight:750">${yearRead}${goal ? ' / ' + goal : ''} <span class="muted" style="font-size:14px;font-weight:600">livre${yearRead > 1 ? 's' : ''}</span></div>
+    <div class="muted small">${goal ? (yearRead >= goal ? 'Défi réussi ! 🏆' : `Encore ${goal - yearRead} · ${aheadLabel(yearRead, goal)}`) : '<button class="link" onclick="go(\'me\')">Fixer un objectif annuel →</button>'}</div></div></div>`;
+  // KPI par format
+  const kp = [
+    ['📚', read.length, 'Livres terminés'],
+    ['📖', pages.toLocaleString('fr-FR'), 'Pages lues'],
+    ['🎧', minutes ? fmtMin(minutes) : '0 h', 'Écoutées'],
+    ['🖼', chapters.toLocaleString('fr-FR'), 'Chapitres lus'],
+    ['⏱', fmtDur(readSec, true), 'Temps de lecture'],
+    ['🔥', streak() + ' j', 'Série en cours']
+  ];
+  h += `<div class="kpis">${kp.map(([i, v, l]) => `<div class="kpi"><div class="ic">${i}</div><div class="v">${v}</div><div class="l">${l}</div></div>`).join('')}</div>`;
+  // 14 derniers jours (pages / minutes / chapitres)
+  const days = []; for (let i = 13; i >= 0; i--) { const d = new Date(); d.setDate(d.getDate() - i); days.push(d); }
+  const lbl = days.map((d, i) => i === 13 ? 'auj.' : i % 2 ? d.getDate() : '');
+  const pv = days.map(d => (m[dayKey(d)] || {}).pages || 0);
+  h += `<div class="card chart-card"><h3>📖 Pages par jour</h3><div class="muted small">14 derniers jours · ${pv.reduce((a, b) => a + b, 0)} pages</div>${barChart(pv, lbl, { goal: +S.settings.dailyGoal || 0, goalLabel: 'objectif ' + (+S.settings.dailyGoal || 0) + ' p.' })}</div>`;
+  if (S.logs.some(l => l.unit === 'min')) {
+    const av = days.map(d => (m[dayKey(d)] || {}).min || 0);
+    h += `<div class="card chart-card"><h3>🎧 Écoute par jour</h3><div class="muted small">14 derniers jours · ${fmtMin(av.reduce((a, b) => a + b, 0))}</div>${barChart(av, lbl, { color: '#06B6D4', min: 30 })}</div>`;
+  }
+  if (S.logs.some(l => l.unit === 'ch')) {
+    const cv = days.map(d => (m[dayKey(d)] || {}).ch || 0);
+    h += `<div class="card chart-card"><h3>🖼 Chapitres par jour</h3><div class="muted small">14 derniers jours · ${cv.reduce((a, b) => a + b, 0)} chapitres</div>${barChart(cv, lbl, { color: '#F59E0B', min: 5, values: true })}</div>`;
+  }
+  // Régularité
+  const start = new Date(); start.setDate(start.getDate() - 83);
+  start.setDate(start.getDate() - (start.getDay() + 6) % 7);
   let cells = ''; const today = new Date();
   for (let d = new Date(start); d <= today; d.setDate(d.getDate() + 1)) {
-    const v = (m[dayKey(d)] || {}).pages || 0;
+    const t = m[dayKey(d)] || {}; const v = (t.pages || 0) + (t.min || 0) / 2 + (t.ch || 0) * 5;
     const lv = v === 0 ? 0 : v < 10 ? 1 : v < 25 ? 2 : v < 50 ? 3 : 4;
     const op = [0, .3, .55, .8, 1][lv];
-    cells += `<i title="${fmtDate(d)} : ${v} p." style="${lv ? `background:color-mix(in srgb,var(--primary) ${op * 100}%,var(--surface-2))` : ''}"></i>`;
+    cells += `<i style="${lv ? `background:color-mix(in srgb,var(--primary) ${op * 100}%,var(--surface-2))` : ''}"></i>`;
   }
-  h += `<div class="card chart-card"><h3>Régularité</h3><div class="muted small">12 dernières semaines</div><div class="heat">${cells}</div>
+  h += `<div class="card chart-card"><h3>Régularité</h3><div class="muted small">12 dernières semaines · tous formats</div><div class="heat">${cells}</div>
     <div class="legend">moins ${[0, .3, .55, .8, 1].map(o => `<i style="background:${o ? `color-mix(in srgb,var(--primary) ${o * 100}%,var(--surface-2))` : 'var(--surface-2)'}"></i>`).join('')} plus</div></div>`;
-  // livres terminés par mois
-  const months = []; for (let i = 5; i >= 0; i--) { const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - i); months.push(d); }
-  const mv = months.map(d => read.filter(b => b.finishedAt && new Date(b.finishedAt).getMonth() === d.getMonth() && new Date(b.finishedAt).getFullYear() === d.getFullYear()).length);
-  const mmax = Math.max(...mv, 2); const mbw = W / 6;
-  let mb = '';
-  mv.forEach((v, i) => {
-    const bh = v / mmax * (H - pb - 18); const x = i * mbw + mbw * .25, w = mbw * .5;
-    mb += `<rect x="${x}" y="${H - pb - bh}" width="${w}" height="${bh}" rx="8" fill="var(--accent)" opacity=".85"/>`;
-    if (v) mb += `<text x="${x + w / 2}" y="${H - pb - bh - 5}" text-anchor="middle" font-size="11" style="fill:var(--ink);font-weight:700">${v}</text>`;
-    mb += `<text x="${x + w / 2}" y="${H - 6}" text-anchor="middle" font-size="10">${months[i].toLocaleDateString('fr-FR', { month: 'short' }).replace('.', '')}</text>`;
-  });
-  h += `<div class="card chart-card"><h3>Livres terminés</h3><div class="muted small">6 derniers mois</div>
-    <svg viewBox="0 0 ${W} ${H}" width="100%" style="margin-top:10px"><line x1="0" x2="${W}" y1="${H - pb}" y2="${H - pb}" stroke="var(--line)"/>${mb}</svg></div>`;
+  // Livres terminés par mois (12 mois)
+  const months = []; for (let i = 11; i >= 0; i--) { const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - i); months.push(d); }
+  const mv = months.map(d => allRead.filter(b => b.finishedAt && new Date(b.finishedAt).getMonth() === d.getMonth() && new Date(b.finishedAt).getFullYear() === d.getFullYear()).length);
+  h += `<div class="card chart-card"><h3>Livres terminés</h3><div class="muted small">12 derniers mois</div>${barChart(mv, months.map(d => d.toLocaleDateString('fr-FR', { month: 'narrow' })), { color: 'var(--accent)', min: 2, values: true })}</div>`;
+  // Par format & par genre
+  if (read.length) {
+    const fr = Object.entries(FORMATS).map(([k, f]) => ({ l: f.e + ' ' + f.l, v: read.filter(b => (b.format || 'paper') === k).length })).filter(r => r.v);
+    h += `<div class="card chart-card"><h3>Par format</h3><div class="muted small">${per[statsPeriod]} · livres terminés</div><div style="margin-top:12px">${hbars(fr)}</div></div>`;
+    const gr = allTags().map(t => ({ l: t.e + ' ' + esc(t.l), v: read.filter(b => (b.tags || []).includes(t.id)).length })).filter(r => r.v).sort((a, b) => b.v - a.v);
+    if (gr.length) h += `<div class="card chart-card"><h3>Par genre</h3><div class="muted small">${per[statsPeriod]} · livres terminés</div><div style="margin-top:12px">${hbars(gr)}</div></div>`;
+    const rated = read.filter(b => b.rating);
+    if (rated.length) {
+      const avg = rated.reduce((a, b) => a + b.rating, 0) / rated.length;
+      const top = [...rated].sort((a, b) => b.rating - a.rating || (b.finishedAt || 0) - (a.finishedAt || 0)).slice(0, 5);
+      h += `<div class="card chart-card"><h3>Mes coups de cœur</h3><div class="muted small">Note moyenne ${avg.toFixed(1).replace('.', ',')} ★ sur ${rated.length} livre${rated.length > 1 ? 's' : ''}</div>
+        <div class="hscroll" style="margin-top:10px">${top.map(b => `<div class="mini" data-open="${b.id}">${coverHTML(b, '')}<div class="t">${esc(b.title)}</div><div class="stars">${'★'.repeat(b.rating)}</div></div>`).join('')}</div></div>`;
+    }
+    const authors = {}; read.forEach(b => { const a = firstAuthor(b.author); if (a) authors[a] = (authors[a] || 0) + 1; });
+    const ta = Object.entries(authors).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([l, v]) => ({ l: esc(l), v }));
+    if (ta.length) h += `<div class="card chart-card"><h3>Auteurs les plus lus</h3><div style="margin-top:12px">${hbars(ta)}</div></div>`;
+  }
+  // Rythmes
+  const sp = logs.filter(l => l.type === 'session' && l.seconds > 60 && (l.unit || 'p') === 'p');
+  const pace = sp.reduce((a, l) => a + l.pages, 0) / (sp.reduce((a, l) => a + l.seconds, 0) / 3600 || 1);
+  const pageBooks = read.filter(b => unitOf(b) === 'p' && b.pages);
+  const avgLen = pageBooks.length ? Math.round(pageBooks.reduce((a, b) => a + b.pages, 0) / pageBooks.length) : 0;
+  const durs = read.filter(b => b.startedAt && b.finishedAt && b.finishedAt > b.startedAt).map(b => (b.finishedAt - b.startedAt) / 864e5);
+  const avgDays = durs.length ? Math.max(1, Math.round(durs.reduce((a, b) => a + b, 0) / durs.length)) : 0;
   h += `<div class="kpis" style="margin-top:14px">
-    <div class="kpi"><div class="l">Rythme moyen</div><div class="v">${sesPages.length ? Math.round(pace) : '—'}</div><div class="l">pages / heure</div></div>
-    <div class="kpi"><div class="l">Sessions</div><div class="v">${S.logs.filter(l => l.type === 'session').length}</div><div class="l">au total</div></div></div>`;
+    <div class="kpi"><div class="l">Rythme moyen</div><div class="v">${sp.length ? Math.round(pace) : '—'}</div><div class="l">pages / heure</div></div>
+    <div class="kpi"><div class="l">Livre moyen</div><div class="v">${avgLen || '—'}</div><div class="l">pages</div></div>
+    <div class="kpi"><div class="l">Temps pour finir</div><div class="v">${avgDays ? avgDays + ' j' : '—'}</div><div class="l">en moyenne</div></div>
+    <div class="kpi"><div class="l">Sessions</div><div class="v">${logs.filter(l => l.type === 'session').length}</div><div class="l">${per[statsPeriod].toLowerCase()}</div></div></div>`;
   return h;
+}
+function aheadLabel(done, goal) {
+  const now = new Date(), y = now.getFullYear();
+  const frac = (now - new Date(y, 0, 1)) / (new Date(y + 1, 0, 1) - new Date(y, 0, 1));
+  const expected = goal * frac, diff = Math.round(done - expected);
+  return diff > 0 ? `${diff} d’avance 🚀` : diff < 0 ? `${-diff} de retard` : 'pile dans les temps ✨';
 }
 
 /* ---------- Moi / Réglages ---------- */
@@ -791,21 +1161,28 @@ function viewMe() {
   return `<div class="page-h"><h1>Moi</h1></div>
   <div class="card">
     <div class="field"><label>Prénom</label><input id="set-name" value="${esc(S.settings.name)}" maxlength="30"></div>
-    <div class="field" style="margin:0"><label>Objectif quotidien (pages)</label><input id="set-goal" type="number" inputmode="numeric" min="1" max="1000" value="${S.settings.dailyGoal}"></div>
+    <div class="two"><div class="field" style="margin:0"><label>Objectif quotidien (pages)</label><input id="set-goal" type="number" inputmode="numeric" min="1" max="1000" value="${S.settings.dailyGoal}"></div>
+    <div class="field" style="margin:0"><label>Défi ${new Date().getFullYear()} (livres)</label><input id="set-year" type="number" inputmode="numeric" min="0" max="1000" placeholder="ex. 40" value="${S.settings.yearGoal || ''}"></div></div>
   </div>
+  <div class="section"><div class="section-h"><h2>Radar des sorties</h2></div>
+    <div class="card">
+      <div class="muted small" style="margin-bottom:10px">Genres suivis : ${allTags().filter(t => (S.settings.interests || []).includes(t.id)).map(t => t.e + ' ' + esc(t.l)).join(', ') || 'aucun'}</div>
+      <div class="row" style="gap:10px"><button class="btn primary" style="flex:1" onclick="openRadarSettings()">⚙️ Mes envies</button><button class="btn" style="flex:1" onclick="S.settings.radarOff=!S.settings.radarOff;save();render()">${S.settings.radarOff ? '👁 Afficher le radar' : '🙈 Masquer le radar'}</button></div>
+    </div></div>
   <div class="section"><div class="section-h"><h2>Mes données</h2></div>
     <div class="card">
       <p class="muted small" style="margin-top:0">Tout est enregistré sur ton téléphone. Une sauvegarde automatique est aussi gardée dans <b>Téléchargements/LaBulleDeKiria</b>${S.settings.lastAutoBackup ? ' (dernière : ' + fmtDate(S.settings.lastAutoBackup, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) + ')' : ''}.</p>
       <div class="row" style="gap:10px"><button class="btn primary" style="flex:1" onclick="exportData()">💾 Sauvegarder</button><button class="btn" style="flex:1" onclick="openImport()">⬇ Restaurer</button></div>
     </div></div>
-  <div class="section" style="text-align:center"><div class="muted small">La Bulle de Kiria · v2.0<br>Données livres : BnF, Google Books, Apple Books & Open Library</div></div>`;
+  <div class="section" style="text-align:center"><div class="muted small">La Bulle de Kiria · v2.1<br>Données livres : BnF, Google Books, Apple Books & Open Library</div></div>`;
 }
 document.addEventListener('change', e => {
   if (e.target.id === 'set-name') { S.settings.name = e.target.value.trim() || 'Kiria'; save(); toast('Prénom enregistré'); }
+  if (e.target.id === 'set-year') { S.settings.yearGoal = Math.max(0, +e.target.value || 0); save(); toast('Défi annuel enregistré 🏆'); }
   if (e.target.id === 'set-goal') { S.settings.dailyGoal = Math.max(1, +e.target.value || 20); save(); toast('Objectif mis à jour'); }
 });
 function backupJSON() {
-  return JSON.stringify({ app: 'la-bulle-de-kiria', version: 2, exportedAt: new Date().toISOString(), books: S.books, logs: S.logs, shelves: S.shelves, settings: S.settings });
+  return JSON.stringify({ app: 'la-bulle-de-kiria', version: 2, exportedAt: new Date().toISOString(), books: S.books, logs: S.logs, shelves: S.shelves, radar: { pinned: radarState().pinned, hidden: radarState().hidden, authors: radarState().authors, removedAuthors: radarState().removedAuthors }, settings: S.settings });
 }
 const NATIVE = () => window.KiriaAndroid || null;
 function exportData() {
@@ -856,7 +1233,7 @@ function scheduleAutoBackup() {
 function applyBackup(text) {
   const d = JSON.parse(text);
   if (!Array.isArray(d.books)) throw new Error('format');
-  S.books = d.books; S.logs = d.logs || []; S.shelves = d.shelves || []; S.settings = Object.assign({}, DEFAULT.settings, d.settings || {}); save();
+  S.books = d.books; S.logs = d.logs || []; S.shelves = d.shelves || []; S.radar = Object.assign({ items: [] }, d.radar || {}); S.settings = Object.assign({}, DEFAULT.settings, d.settings || {}); save();
   return S.books.length;
 }
 function openImport() {
@@ -903,6 +1280,7 @@ function openAdd(replaceId) {
   const target = replaceId ? book(replaceId) : null;
   const sh = openSheet(target ? 'Changer d’édition' : 'Ajouter un livre', `
     <label class="search" style="margin-top:0"><span class="muted">🔍</span><input id="q" placeholder="Titre, auteur ou ISBN" enterkeyhint="search" autocomplete="off" value="${target ? esc(target.author || target.title) : ''}"></label>
+    ${target ? '' : `<div class="seg" style="margin:-2px 0 10px">${[['book', '📚 Livre'], ['audio', '🎧 Audio'], ['webtoon', '🖼 Webtoon']].map(([k, l]) => `<button data-mode="${k}" class="${(S.settings.addMode || 'book') === k ? 'on' : ''}">${l}</button>`).join('')}</div>`}
     <div class="row" style="margin:-4px 0 12px;gap:8px">
       <button class="chip lang-f ${S.settings.frOnly ? 'p' : ''}" data-fr="1">🇫🇷 Français seulement</button>
       <button class="chip lang-f ${S.settings.frOnly ? '' : 'p'}" data-fr="0">🌍 Toutes les langues</button>
@@ -913,7 +1291,15 @@ function openAdd(replaceId) {
   let t, ctrl;
   q.oninput = () => { clearTimeout(t); t = setTimeout(run, 1100); };
   q.onkeydown = e => { if (e.key === 'Enter') { clearTimeout(t); run(); q.blur(); } };
-  sh.querySelector('#manual')?.addEventListener('click', () => openEdit(null, { title: q.value }));
+  const mode = () => target ? (target.format === 'audio' ? 'audio' : 'book') : (S.settings.addMode || 'book');
+  const modeFmt = () => ({ audio: 'audio', webtoon: 'webtoon' })[mode()] || (target ? target.format : 'paper');
+  sh.querySelector('#manual')?.addEventListener('click', () => openEdit(null, { title: q.value, format: modeFmt() }));
+  sh.querySelectorAll('[data-mode]').forEach(c => c.onclick = () => {
+    S.settings.addMode = c.dataset.mode; save();
+    sh.querySelectorAll('[data-mode]').forEach(x => x.classList.toggle('on', x === c));
+    q.placeholder = c.dataset.mode === 'audio' ? 'Titre ou auteur du livre audio' : c.dataset.mode === 'webtoon' ? 'Titre du webtoon (ou saisis-le à la main)' : 'Titre, auteur ou ISBN';
+    if (q.value.trim().length >= 2) run();
+  });
   sh.querySelectorAll('[data-fr]').forEach(c => c.onclick = () => {
     S.settings.frOnly = c.dataset.fr === '1'; save();
     sh.querySelectorAll('[data-fr]').forEach(x => x.classList.toggle('p', x === c)); run();
@@ -929,7 +1315,8 @@ function openAdd(replaceId) {
         if (!items.length) { res.innerHTML = srcBar() + `<div class="empty" style="padding:24px">${/…/.test(searchInfo.bnf) ? 'Recherche dans le catalogue de la BnF…' : 'Aucun livre trouvé.' + (S.settings.frOnly ? ' Essaie « Toutes les langues ».' : '')}</div>`; return; }
         draw(items);
       };
-      show(await searchBooks(term, ctrl.signal, !!S.settings.frOnly, show));
+      if (mode() === 'audio') show(await searchAudio(term, ctrl.signal, !!S.settings.frOnly));
+      else show((await searchBooks(term, ctrl.signal, !!S.settings.frOnly, items => show(items.map(x => Object.assign(x, { format: modeFmt() }))))).map(x => Object.assign(x, { format: x.format === 'audio' ? 'audio' : modeFmt() })));
     } catch (e) {
       if (e.name === 'AbortError') return;
       res.innerHTML = `<div class="empty" style="padding:24px">Recherche impossible (connexion ?).${target ? '' : ' Tu peux saisir le livre manuellement.'}</div>`;
@@ -939,7 +1326,7 @@ function openAdd(replaceId) {
     {
       res.innerHTML = srcBar() + items.map((b, i) => `<div class="result" data-i="${i}">${coverHTML(b, 'c-sm')}<div class="info"><div class="title" style="font-size:15px">${esc(b.title)}</div>
         <div class="author">${esc(b.author || 'Auteur inconnu')}</div>
-        <div class="muted small">${[b.langSure || b.lang !== 'fr' ? langBadge(b.lang) : '🇫🇷 FR ?', b.publisher && esc(b.publisher.slice(0, 24)), b.year, b.pages ? b.pages + ' p.' : '', b.source === 'BnF' ? '📚 BnF' : '', b.source === 'Apple Books' ? '🍎 Apple' : ''].filter(Boolean).join(' · ')}</div>
+        <div class="muted small">${[b.langSure || b.lang !== 'fr' ? langBadge(b.lang) : '🇫🇷 FR ?', b.publisher && esc(b.publisher.slice(0, 24)), b.year, b.pages ? b.pages + ' p.' : '', b.source === 'BnF' ? '📚 BnF' : '', b.source === 'Apple Books' ? '🍎 Apple' : '', b.format === 'audio' ? '🎧 Audio' : ''].filter(Boolean).join(' · ')}</div>
         ${b.releaseDate ? `<div class="small" style="color:var(--accent);font-weight:700;margin-top:2px">📅 Sortie le ${fmtDate(b.releaseDate + 'T00:00:00', { day: 'numeric', month: 'long', year: 'numeric' })}</div>` : ''}</div>
         <span class="muted" style="font-size:22px;padding:0 6px">›</span></div>`).join('');
       res.querySelector('#src-retry')?.addEventListener('click', run);
@@ -947,6 +1334,20 @@ function openAdd(replaceId) {
     }
   }
   if (target) run(); else setTimeout(() => q.focus(), 350);
+}
+async function searchAudio(term, signal, frOnly) {
+  const url = 'https://itunes.apple.com/search?country=fr&lang=fr_fr&media=audiobook&entity=audiobook&limit=30&term=' + encodeURIComponent(term);
+  let out = [];
+  try {
+    const d = JSON.parse(await httpText(url, signal));
+    out = (d.results || []).filter(r => r.collectionName).map(r => {
+      const it = appleMap(Object.assign({}, r, { trackName: r.collectionName.replace(/\s*\((?:Unabridged|Version intégrale|Intégral)\)\s*$/i, ''), trackId: r.collectionId, trackViewUrl: r.collectionViewUrl }));
+      return Object.assign(it, { format: 'audio', key: 'au' + r.collectionId, source: 'Apple Books' });
+    });
+    searchInfo.sources = 'Apple Books (audio) ✓';
+  } catch (e) { if (e.name === 'AbortError') throw e; searchInfo.sources = 'Apple Books (audio) ✗'; throw e; }
+  if (frOnly) out = out.filter(b => b.lang !== 'en');
+  return out.sort((a, b) => (b.lang === 'fr') - (a.lang === 'fr'));
 }
 function srcBar() {
   const bad = /✗/.test(searchInfo.bnf || '');
@@ -1120,24 +1521,36 @@ async function searchBooks(term, signal, frOnly, onPartial) {
 }
 function chooseStatus(data, done) {
   const future = data.releaseDate && data.releaseDate > dayKey();
+  let fmt = data.format || 'paper';
+  const tags = new Set(data.tags && data.tags.length ? data.tags : classify(data));
   const sh = openSheet('Où le ranger ?', `<p class="muted" style="margin-top:0">${esc(data.title)}</p>
+    <div class="muted small" style="font-weight:650;margin-bottom:6px">Format</div>
+    <div class="chips" style="margin-bottom:12px">${Object.entries(FORMATS).map(([k, f]) => `<button class="chip ${k === fmt ? 'p' : ''}" data-f="${k}">${f.e} ${f.l}</button>`).join('')}</div>
+    <div class="muted small" style="font-weight:650;margin-bottom:6px">Genres <span style="font-weight:400">(devinés automatiquement, touche pour corriger)</span></div>
+    <div class="chips" style="margin-bottom:16px">${allTags().map(t => `<button class="chip ${tags.has(t.id) ? 'p' : ''}" data-tg="${t.id}">${t.e} ${esc(t.l)}</button>`).join('')}</div>
     ${future ? `<button class="btn block accent" data-s="wish" style="margin-bottom:10px">💫 Wishlist — sort le ${fmtDate(data.releaseDate + 'T00:00:00', { day: 'numeric', month: 'long' })}</button>` : ''}
     <button class="btn block primary" data-s="reading" style="margin-bottom:10px">📖 Je le lis en ce moment</button>
     <button class="btn block" data-s="toread" style="margin-bottom:10px">🫧 Dans ma PAL (je l’ai, à lire)</button>
     <button class="btn block" data-s="wish" style="margin-bottom:10px">💫 Wishlist (envie / à paraître)</button>
     <button class="btn block" data-s="read">🏁 Déjà lu</button>`);
+  sh.querySelectorAll('[data-f]').forEach(c => c.onclick = () => { fmt = c.dataset.f; sh.querySelectorAll('[data-f]').forEach(x => x.classList.toggle('p', x === c)); });
+  sh.querySelectorAll('[data-tg]').forEach(c => c.onclick = () => { const id = c.dataset.tg; tags.has(id) ? tags.delete(id) : tags.add(id); c.classList.toggle('p', tags.has(id)); });
   sh.querySelectorAll('[data-s]').forEach(b => b.onclick = () => {
-    addBook(data, b.dataset.s); closeSheet(); done && done();
+    const d = Object.assign({}, data, { format: fmt, tags: [...tags] });
+    if (unitOf(d) !== unitOf({ format: data.format || 'paper' })) d.pages = 0;
+    addBook(d, b.dataset.s); closeSheet(); done && done();
   });
 }
 function addBook(data, status) {
   const toShelf = pendingShelf; pendingShelf = null;
   const now = Date.now();
-  const b = Object.assign({ id: uid(), title: '', author: '', pages: 0, cover: '', currentPage: 0, rating: 0, notes: '' }, data,
+  const b = Object.assign({ id: uid(), title: '', author: '', pages: 0, cover: '', currentPage: 0, rating: 0, notes: '', format: 'paper' }, data,
     { status, addedAt: now, startedAt: (status === 'reading' || status === 'read') ? now : null, finishedAt: status === 'read' ? now : null });
   if (status === 'toread') b.palOrder = palNext();
   if (status === 'wish' && !b.releaseDate && b.year && +b.year > new Date().getFullYear()) b.releaseDate = b.year + '-01-01';
   if (status === 'read') b.currentPage = b.pages;
+  if (!b.tags) b.tags = classify(b);
+  delete b.key; delete b.langSure;
   S.books.push(b);
   if (toShelf && shelf(toShelf)) shelf(toShelf).books.push(b.id);
   save(); render();
@@ -1197,8 +1610,11 @@ function pickImage() {
 
 /* ---------- Édition ---------- */
 function openEdit(id, prefill = {}) {
-  const b = id ? book(id) : Object.assign({ title: '', author: '', pages: '', cover: '', year: '', publisher: '', isbn: '', description: '', releaseDate: '' }, prefill);
-  let cover = b.cover || '', cover2 = b.cover2 || '';
+  const b = id ? book(id) : Object.assign({ title: '', author: '', pages: '', cover: '', year: '', publisher: '', isbn: '', description: '', releaseDate: '', format: 'paper' }, prefill);
+  let cover = b.cover || '', cover2 = b.cover2 || '', fmt = b.format || 'paper';
+  const etags = new Set(b.tags || []);
+  const totLabel = f => ({ min: 'Durée totale (ex. 12h30)', ch: 'Nombre de chapitres (vide si en cours)' })[FORMATS[f].u] || 'Nombre de pages';
+  const totVal = () => !b.pages ? '' : unitOf(b) === 'min' ? fmtMin(b.pages).replace(/ /g, '') : b.pages;
   const sh = openSheet(id ? 'Modifier la fiche' : 'Nouveau livre', `
     <div class="row" style="gap:14px;align-items:flex-end;margin-bottom:14px">
       <div id="e-cv"></div>
@@ -1208,9 +1624,11 @@ function openEdit(id, prefill = {}) {
         <button class="btn sm danger" id="e-nocv">Retirer la couverture</button>
       </div>
     </div>
+    <div class="field"><label>Format</label><div class="chips" id="e-fmt">${Object.entries(FORMATS).map(([k, f]) => `<button class="chip ${k === fmt ? 'p' : ''}" data-f="${k}">${f.e} ${f.l}</button>`).join('')}</div></div>
     <div class="field"><label>Titre *</label><input id="e-title" value="${esc(b.title)}"></div>
-    <div class="field"><label>Auteur</label><input id="e-author" value="${esc(b.author)}"></div>
-    <div class="two"><div class="field"><label>Nombre de pages</label><input id="e-pages" type="number" inputmode="numeric" value="${esc(b.pages || '')}"></div>
+    <div class="field"><label id="e-alab">${fmt === 'webtoon' ? 'Auteur / dessinateur' : fmt === 'audio' ? 'Auteur (et narrateur)' : 'Auteur'}</label><input id="e-author" value="${esc(b.author)}"></div>
+    <div class="field"><label>Genres</label><div class="chips" id="e-tags">${allTags().map(t => `<button class="chip ${etags.has(t.id) ? 'p' : ''}" data-tg="${t.id}">${t.e} ${esc(t.l)}</button>`).join('')}<button class="chip" id="e-newtag">＋</button></div></div>
+    <div class="two"><div class="field"><label id="e-plab">${totLabel(fmt)}</label><input id="e-pages" ${unitOf(b) === 'min' ? '' : 'type="number"'} inputmode="${unitOf(b) === 'min' ? 'text' : 'numeric'}" value="${esc(totVal())}"></div>
     <div class="field"><label>Année</label><input id="e-year" inputmode="numeric" value="${esc(b.year || '')}"></div></div>
     <div class="field"><label>Éditeur</label><input id="e-pub" value="${esc(b.publisher || '')}"></div>
     <div class="field"><label>ISBN</label><input id="e-isbn" inputmode="numeric" value="${esc(b.isbn || '')}"></div>
@@ -1219,7 +1637,15 @@ function openEdit(id, prefill = {}) {
     <div class="field"><label>…ou lien d’une image de couverture</label><input id="e-cover" type="url" placeholder="https://…" value="${esc(cover.startsWith('data:') ? '' : cover)}"></div>
     <button class="btn primary block" id="e-save">${id ? 'Enregistrer' : 'Continuer'}</button>`);
   const $ = k => sh.querySelector('#e-' + k);
-  const draw = () => { $('cv').innerHTML = coverHTML({ title: $('title').value || b.title, cover, cover2 }, 'c-md'); };
+  const draw = () => { $('cv').innerHTML = coverHTML({ title: $('title').value || b.title, cover, cover2, format: fmt }, 'c-md'); };
+  sh.querySelectorAll('#e-fmt [data-f]').forEach(c => c.onclick = () => {
+    const oldU = FORMATS[fmt].u; fmt = c.dataset.f; sh.querySelectorAll('#e-fmt [data-f]').forEach(x => x.classList.toggle('p', x === c));
+    $('plab').textContent = totLabel(fmt); $('alab').textContent = fmt === 'webtoon' ? 'Auteur / dessinateur' : fmt === 'audio' ? 'Auteur (et narrateur)' : 'Auteur';
+    const p = $('pages'); if (FORMATS[fmt].u === 'min') { p.removeAttribute('type'); p.inputMode = 'text'; } else { p.type = 'number'; p.inputMode = 'numeric'; }
+    if (oldU !== FORMATS[fmt].u) p.value = ''; draw();
+  });
+  sh.querySelectorAll('#e-tags [data-tg]').forEach(c => c.onclick = () => { const id = c.dataset.tg; etags.has(id) ? etags.delete(id) : etags.add(id); c.classList.toggle('p', etags.has(id)); });
+  $('newtag').onclick = () => openTagEditor(id => { etags.add(id); const btn = document.createElement('button'); btn.className = 'chip p'; btn.textContent = tagChip(id).replace(/&amp;/g, '&'); $('newtag').before(btn); });
   draw();
   $('title').oninput = draw;
   $('cover').onchange = () => { cover = $('cover').value.trim(); cover2 = ''; draw(); };
@@ -1239,10 +1665,12 @@ function openEdit(id, prefill = {}) {
   $('save').onclick = () => {
     const v = k => $(k).value.trim();
     if (!v('title')) { toast('Le titre est obligatoire'); return; }
-    const data = { title: v('title'), author: v('author'), pages: Math.max(0, parseInt(v('pages')) || 0), year: v('year') || (v('release') || '').slice(0, 4),
+    const tot = FORMATS[fmt].u === 'min' ? parseDur(v('pages')) : Math.max(0, parseInt(v('pages')) || 0);
+    const data = { title: v('title'), author: v('author'), pages: tot, year: v('year') || (v('release') || '').slice(0, 4), format: fmt, tags: [...etags],
       publisher: v('pub'), isbn: v('isbn'), cover, cover2, description: v('desc'), releaseDate: v('release') };
+    if (!data.tags.length) data.tags = classify(data);
     if (data.isbn && isbnLang(data.isbn)) data.lang = isbnLang(data.isbn);
-    if (id) { Object.assign(b, data); if (b.status === 'read') b.currentPage = b.pages; save(); closeSheet(); closeSheet(); openBook(id); render(); toast('Fiche enregistrée'); }
+    if (id) { Object.assign(b, data); if (b.status === 'read' && b.pages) b.currentPage = b.pages; if (b.pages && b.currentPage > b.pages) b.currentPage = b.pages; save(); closeSheet(); closeSheet(); openBook(id); render(); toast('Fiche enregistrée'); }
     else { closeSheet(); chooseStatus(data); }
   };
 }
@@ -1252,16 +1680,17 @@ function openBook(id) {
   const b = book(id); if (!b) return;
   const logs = S.logs.filter(l => l.bookId === id).sort((a, c) => c.at - a.at);
   const totalSec = logs.reduce((a, l) => a + (l.seconds || 0), 0);
-  const chips = [b.lang ? langBadge(b.lang) : '', b.pages ? `📄 ${b.pages} pages` : '', b.year ? `📅 ${esc(b.year)}` : '', b.publisher ? `🏢 ${esc(b.publisher)}` : '', b.genre ? `🏷 ${esc(b.genre)}` : '', totalSec ? `⏱ ${fmtDur(totalSec)}` : '']
+  const f0 = fmtOf(b);
+  const chips = [f0.e + ' ' + f0.l, b.lang ? langBadge(b.lang) : '', b.pages ? (f0.u === 'min' ? `⏳ ${fmtMin(b.pages)}` : f0.u === 'ch' ? `🖼 ${b.pages} chapitres` : `📄 ${b.pages} pages`) : '', b.year ? `📅 ${esc(b.year)}` : '', b.publisher ? `🏢 ${esc(b.publisher)}` : '', b.genre ? `🏷 ${esc(b.genre)}` : '', totalSec ? `⏱ ${fmtDur(totalSec)}` : '']
     .filter(Boolean).map(c => `<span class="chip">${c}</span>`).join('');
   let main = '';
   if (b.status === 'reading') {
     const left = b.pages ? b.pages - (b.currentPage || 0) : 0;
-    main = `<div class="card row" style="gap:16px">${ring(b.currentPage || 0, b.pages || 0, 76, 8)}
-      <div style="flex:1"><div style="font-weight:700;font-size:17px">${b.pages ? `Page ${b.currentPage || 0} / ${b.pages}` : `Page ${b.currentPage || 0}`}</div>
-      <div class="muted small">${b.pages ? `Encore ${left} page${left > 1 ? 's' : ''}` : 'Ajoute le nombre de pages via « Modifier »'}</div>
+    main = `<div class="card row" style="gap:16px">${ring(b.currentPage || 0, b.pages || 0, 76, 8, b.pages ? undefined : (f0.u === 'ch' ? 'Ch.' + (b.currentPage || 0) : f0.e))}
+      <div style="flex:1"><div style="font-weight:700;font-size:17px">${progLabel(b, true)}</div>
+      <div class="muted small">${b.pages ? `Encore ${qtyLabel(left, f0.u)}` : f0.u === 'ch' ? 'Série en cours de parution' : 'Ajoute le total via « Modifier la fiche »'}</div>
       ${b.startedAt ? `<div class="muted small">Commencé le ${fmtDate(b.startedAt, { day: 'numeric', month: 'long' })}</div>` : ''}</div></div>
-      <div class="row" style="margin-top:12px;gap:10px"><button class="btn accent" style="flex:1;padding:13px" data-session="${b.id}">▶ Démarrer une session</button><button class="btn" style="padding:13px" data-progress="${b.id}">＋ Pages</button></div>`;
+      <div class="row" style="margin-top:12px;gap:10px"><button class="btn accent" style="flex:1;padding:13px" data-session="${b.id}">${f0.u === 'min' ? '🎧 Session d’écoute' : '▶ Démarrer une session'}</button><button class="btn" style="padding:13px" data-progress="${b.id}">${f0.add}</button></div>`;
   } else if (b.status === 'toread') {
     const pos = palList().findIndex(x => x.id === b.id) + 1;
     main = `<div class="muted small" style="text-align:center;margin-bottom:10px">N° ${pos} dans ta PAL</div><button class="btn accent block" id="d-start">📖 Commencer la lecture</button>`;
@@ -1283,6 +1712,8 @@ function openBook(id) {
     ${b.description ? `<div class="section"><div class="section-h"><h2>Résumé</h2></div><div class="desc" id="d-desc">${esc(b.description.replace(/<[^>]+>/g, ''))}</div><button class="link" id="d-more" style="margin-top:6px">Lire plus</button></div>` : ''}
     <div class="section"><div class="section-h"><h2>Mes notes</h2></div><div class="field" style="margin:0"><textarea id="d-notes" rows="3" placeholder="Citations, impressions, personnages…">${esc(b.notes || '')}</textarea></div></div>
     ${logs.length ? `<div class="section"><div class="section-h"><h2>Historique</h2><span class="muted small">${logs.length} entrée${logs.length > 1 ? 's' : ''}</span></div><div class="card">${logs.slice(0, 30).map(l => histRow(l)).join('')}</div></div>` : ''}
+    <div class="section"><div class="section-h"><h2>Genres</h2></div>
+      <div class="chips" id="d-tags">${allTags().map(t => `<button class="chip ${(b.tags || []).includes(t.id) ? 'p' : ''}" data-tg="${t.id}">${t.e} ${esc(t.l)}</button>`).join('')}</div></div>
     <div class="section"><div class="section-h"><h2>Mes piles</h2></div>
       <div class="chips" id="d-shelves">${S.shelves.map(sh => `<button class="chip ${(sh.books || []).includes(b.id) ? 'p' : ''}" data-shelf="${sh.id}">${(sh.books || []).includes(b.id) ? '✓ ' : ''}${sh.emoji} ${esc(sh.name)}</button>`).join('')}
       <button class="chip" id="d-newshelf">＋ Nouvelle pile</button></div></div>
@@ -1300,6 +1731,7 @@ function openBook(id) {
   sh.querySelector('#d-more')?.addEventListener('click', e => { sh.querySelector('#d-desc').classList.toggle('open'); e.target.textContent = sh.querySelector('#d-desc').classList.contains('open') ? 'Réduire' : 'Lire plus'; });
   sh.querySelector('#d-notes').onchange = e => { b.notes = e.target.value; save(); toast('Note enregistrée'); };
   sh.querySelector('#d-edit').onclick = () => openEdit(id);
+  sh.querySelectorAll('#d-tags [data-tg]').forEach(c => c.onclick = () => { b.tags = b.tags || []; const t = c.dataset.tg, i = b.tags.indexOf(t); i >= 0 ? b.tags.splice(i, 1) : b.tags.push(t); c.classList.toggle('p', i < 0); save(); render(); });
   sh.querySelector('#d-edition').onclick = () => openAdd(id);
   sh.querySelectorAll('[data-shelf]').forEach(c => c.onclick = () => {
     const s2 = shelf(c.dataset.shelf), added = toggleInShelf(s2, id);
@@ -1326,7 +1758,7 @@ function setStatus(b, st) {
 }
 function finishBook(b, silent) {
   b.status = 'read'; b.finishedAt = Date.now(); if (b.pages) b.currentPage = b.pages;
-  S.logs.push({ id: uid(), bookId: b.id, type: 'finish', date: dayKey(), at: Date.now(), pages: 0, seconds: 0 });
+  S.logs.push({ id: uid(), bookId: b.id, type: 'finish', date: dayKey(), at: Date.now(), pages: 0, seconds: 0, unit: unitOf(b) });
   save(); render(); bubbles(); toast('Livre terminé ! Bravo 🎉');
 }
 
@@ -1337,27 +1769,32 @@ function logProgress(b, newPage, seconds, type) {
   const delta = Math.max(0, newPage - (b.currentPage || 0));
   b.currentPage = newPage; b.lastReadAt = Date.now();
   if (b.status === 'toread' || b.status === 'wish') { b.status = 'reading'; b.startedAt ||= Date.now(); }
-  if (delta || seconds) S.logs.push({ id: uid(), bookId: b.id, type, date: dayKey(), at: Date.now(), pages: delta, seconds: Math.round(seconds || 0) });
+  const u = unitOf(b);
+  if (delta || seconds) S.logs.push({ id: uid(), bookId: b.id, type, date: dayKey(), at: Date.now(), pages: delta, seconds: Math.round(seconds || 0), unit: u });
   save();
   if (b.pages && newPage >= b.pages && b.status !== 'read') finishBook(b);
-  else { render(); toast(delta ? `+${delta} page${delta > 1 ? 's' : ''} 📖` : 'Session enregistrée'); }
+  else { render(); toast(delta ? `+${qtyLabel(delta, u)} ${fmtOf(b).e}` : 'Session enregistrée'); }
   const today = dayTotals()[dayKey()]?.pages || 0, goal = +S.settings.dailyGoal;
-  if (delta && today >= goal && today - delta < goal) setTimeout(() => { bubbles(); toast('Objectif du jour atteint ! 🌟'); }, 900);
+  if (u === 'p' && delta && today >= goal && today - delta < goal) setTimeout(() => { bubbles(); toast('Objectif du jour atteint ! 🌟'); }, 900);
 }
 function openProgress(id, seconds) {
   const b = book(id); if (!b) return;
-  const cur = b.currentPage || 0;
-  const sh = openSheet(seconds != null ? 'Fin de session' : 'Où en es-tu ?', `
-    ${seconds != null ? `<div class="card row" style="margin-bottom:16px"><div style="font-size:26px">⏱</div><div><div style="font-weight:700">${fmtDur(seconds)} de lecture</div><div class="muted small">${esc(b.title)}</div></div></div>` : `<p class="muted" style="margin-top:0">${esc(b.title)}</p>`}
-    <div class="field"><label>Page atteinte ${b.pages ? `(sur ${b.pages})` : ''}</label>
-      <input id="p-page" type="number" inputmode="numeric" value="${cur}" min="0" ${b.pages ? `max="${b.pages}"` : ''} style="font-size:24px;font-weight:700;text-align:center"></div>
-    <div class="row" style="gap:8px;margin-bottom:16px">${[5, 10, 20, 50].map(n => `<button class="btn sm" style="flex:1" data-add="${n}">+${n}</button>`).join('')}</div>
+  const cur = b.currentPage || 0, u = unitOf(b), audio = u === 'min';
+  const start = audio && seconds != null ? Math.min(b.pages || 1e6, cur + Math.round(seconds / 60)) : cur;
+  const label = audio ? `Position d’écoute (ex. 3h20)${b.pages ? ' sur ' + fmtMin(b.pages) : ''}` : u === 'ch' ? `Chapitre atteint${b.pages ? ` (sur ${b.pages})` : ''}` : `Page atteinte ${b.pages ? `(sur ${b.pages})` : ''}`;
+  const steps = audio ? [15, 30, 60, 120] : u === 'ch' ? [1, 3, 5, 10] : [5, 10, 20, 50];
+  const sh = openSheet(seconds != null ? 'Fin de session' : (audio ? 'Où en est ton écoute ?' : 'Où en es-tu ?'), `
+    ${seconds != null ? `<div class="card row" style="margin-bottom:16px"><div style="font-size:26px">${audio ? '🎧' : '⏱'}</div><div><div style="font-weight:700">${fmtDur(seconds)} ${audio ? 'd’écoute' : 'de lecture'}</div><div class="muted small">${esc(b.title)}</div></div></div>` : `<p class="muted" style="margin-top:0">${esc(b.title)}</p>`}
+    <div class="field"><label>${label}</label>
+      <input id="p-page" ${audio ? 'inputmode="text"' : 'type="number" inputmode="numeric"'} value="${audio ? fmtMin(start).replace(/ /g, '') : start}" min="0" ${b.pages && !audio ? `max="${b.pages}"` : ''} style="font-size:24px;font-weight:700;text-align:center"></div>
+    <div class="row" style="gap:8px;margin-bottom:16px">${steps.map(n => `<button class="btn sm" style="flex:1" data-add="${n}">+${audio ? fmtMin(n).replace(/ /g, '') : n}</button>`).join('')}</div>
     <button class="btn primary block" id="p-save">Enregistrer</button>
-    ${b.pages ? `<button class="btn block" style="margin-top:10px" id="p-done">🏁 J’ai terminé ce livre</button>` : ''}`);
+    ${b.pages || u === 'ch' ? `<button class="btn block" style="margin-top:10px" id="p-done">🏁 J’ai terminé${u === 'ch' ? ' (série finie)' : ''}</button>` : ''}`);
   const inp = sh.querySelector('#p-page');
-  sh.querySelectorAll('[data-add]').forEach(x => x.onclick = () => { inp.value = Math.min(b.pages || 1e6, (+inp.value || 0) + +x.dataset.add); });
-  sh.querySelector('#p-save').onclick = () => { closeSheet(); logProgress(b, +inp.value || 0, seconds, seconds != null ? 'session' : 'update'); };
-  sh.querySelector('#p-done')?.addEventListener('click', () => { closeSheet(); closeAll(); logProgress(b, b.pages, seconds, seconds != null ? 'session' : 'update'); });
+  const val = () => audio ? parseDur(inp.value) : (+inp.value || 0);
+  sh.querySelectorAll('[data-add]').forEach(x => x.onclick = () => { const n = Math.min(b.pages || 1e6, val() + +x.dataset.add); inp.value = audio ? fmtMin(n).replace(/ /g, '') : n; });
+  sh.querySelector('#p-save').onclick = () => { closeSheet(); logProgress(b, val(), seconds, seconds != null ? 'session' : 'update'); };
+  sh.querySelector('#p-done')?.addEventListener('click', () => { closeSheet(); closeAll(); if (b.pages) logProgress(b, b.pages, seconds, seconds != null ? 'session' : 'update'); else { logProgress(b, Math.max(val(), cur), seconds, seconds != null ? 'session' : 'update'); finishBook(b); } });
   setTimeout(() => { inp.focus(); inp.select(); }, 350);
 }
 
@@ -1375,6 +1812,7 @@ function startSession(id) {
 function showSession() {
   const b = book(S.session.bookId); if (!b) { S.session = null; save(); return; }
   document.getElementById('ses-title').textContent = b.title;
+  document.querySelector('#session .lbl').textContent = unitOf(b) === 'min' ? 'Session d’écoute' : 'Session de lecture';
   sesEl.classList.add('show');
   try { window.KiriaAndroid?.keepAwake?.(true); } catch (e) { }
   const upd = () => {
@@ -1408,8 +1846,11 @@ window.kiriaBack = function () {
   return false;
 };
 
+S.books.forEach(b => { if (!b.format) b.format = 'paper'; if (!b.tags) b.tags = classify(b); });
+radarState();
 render();
 if (S.session) showSession();
+setTimeout(maybeAutoRadar, 2500);
 </script>
 </body>
 </html>
