@@ -169,6 +169,31 @@ svg text{fill:var(--muted);font-family:var(--font)}
 .hist{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--line);font-size:14px}
 .hist:last-child{border:0}
 .hist>.cover{width:40px;height:60px;border-radius:6px}
+.stack{position:relative;flex:none}
+.stack>div{position:absolute;top:0;width:44px;height:100%;}
+.stack>div .cover{width:100%;height:100%;border-radius:7px;box-shadow:0 3px 8px rgba(0,0,0,.25)}
+.shelf-card{width:136px;flex:none;background:var(--surface);border-radius:18px;padding:12px;box-shadow:var(--shadow);cursor:pointer}
+.shelf-card .stack>div{width:40px}
+.shelf-card .t{font-size:13.5px;font-weight:700;margin-top:10px;line-height:1.2;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.shelfchips{margin:10px -16px 0;padding-bottom:2px}
+.shelfchips .chip{flex:none;padding:8px 12px;font-size:13px;white-space:nowrap}
+.shelfchips .chip.on{box-shadow:inset 0 0 0 1.5px var(--primary)}
+.chip .n{opacity:.7;font-size:11px}
+.emo{display:flex;flex-wrap:wrap;gap:8px}
+.emo button{width:40px;height:40px;border-radius:12px;background:var(--surface);border:1.5px solid var(--line);font-size:20px}
+.emo button.on{border-color:var(--primary);box-shadow:0 0 0 2px var(--primary-soft)}
+.cgrid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
+.chead div{text-align:center;font-size:11.5px;font-weight:700;color:var(--muted);padding-bottom:4px}
+.cday{position:relative;aspect-ratio:.68;border-radius:9px;background:var(--surface-2);overflow:hidden;padding:0}
+.cday.empty{background:none}
+.cday .cnum{position:absolute;top:3px;left:5px;font-size:11.5px;font-weight:700;color:var(--muted);z-index:3}
+.cday.has .cnum{color:#fff;text-shadow:0 1px 3px #000a;background:#0005;border-radius:6px;padding:0 4px;left:3px}
+.cday.today{box-shadow:inset 0 0 0 2px var(--accent)}
+.cday.sel{box-shadow:0 0 0 2.5px var(--primary)}
+.cday .ccov{position:absolute;inset:0}
+.cday .ccov .cover{width:100%;height:100%;border-radius:0;box-shadow:none}
+.cday .ccov .ph{font-size:8px;padding:4px}
+.cday .cmore{position:absolute;bottom:3px;right:3px;z-index:3;background:var(--accent);color:#fff;font-size:10px;font-weight:700;border-radius:8px;padding:1px 5px}
 .hist .dot{width:34px;height:34px;border-radius:50%;background:var(--primary-soft);color:var(--primary);display:flex;align-items:center;justify-content:center;font-size:15px;flex:none}
 .rate button{font-size:30px;color:var(--line);padding:0 2px}
 .rate button.on{color:#F5B301}
@@ -232,7 +257,7 @@ const DEFAULT = { books: [], logs: [], settings: { name: 'Kiria', dailyGoal: 20,
 let S;
 try { S = JSON.parse(localStorage.getItem(KEY)) || structuredClone(DEFAULT); } catch (e) { S = structuredClone(DEFAULT); }
 S.settings = Object.assign({}, DEFAULT.settings, S.settings || {});
-S.books = S.books || []; S.logs = S.logs || [];
+S.books = S.books || []; S.logs = S.logs || []; S.shelves = S.shelves || [];
 function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { toast('Impossible d’enregistrer'); } }
 
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
@@ -369,6 +394,174 @@ function releaseLabel(b) {
   return 'Déjà disponible depuis le ' + fmtDate(b.releaseDate + 'T00:00:00', { day: 'numeric', month: 'long', year: 'numeric' });
 }
 
+/* ---------- Piles personnalisées (mood, challenge…) ---------- */
+const SHELF_EMOJIS = ['🌧', '☀️', '🍂', '❄️', '💘', '🔥', '🐉', '🔪', '👻', '🧚', '🏆', '🎯', '📅', '🌙', '☕', '🌸'];
+const SHELF_COLORS = [['#8B5CF6', '#EC4899'], ['#6366F1', '#06B6D4'], ['#F59E0B', '#EF4444'], ['#10B981', '#3B82F6'], ['#F472B6', '#FB923C'], ['#0EA5E9', '#A855F7']];
+function shelf(id) { return S.shelves.find(s => s.id === id); }
+function shelfBooks(sh) { return (sh.books || []).map(book).filter(Boolean); }
+function shelvesOf(bookId) { return S.shelves.filter(s => (s.books || []).includes(bookId)); }
+function toggleInShelf(sh, bookId) {
+  sh.books = sh.books || [];
+  const i = sh.books.indexOf(bookId);
+  if (i >= 0) sh.books.splice(i, 1); else sh.books.push(bookId);
+  save();
+  return i < 0;
+}
+function shelfProgress(sh) {
+  const l = shelfBooks(sh), done = l.filter(b => b.status === 'read').length;
+  const target = +sh.target || l.length;
+  return { done, total: l.length, target, pct: target ? Math.min(100, Math.round(done / target * 100)) : 0 };
+}
+function shelfStack(sh, size = 44) {
+  const l = shelfBooks(sh).slice(0, 3);
+  const [c1, c2] = SHELF_COLORS[sh.color || 0];
+  if (!l.length) return `<div class="stack" style="width:${size}px;height:${size * 1.5}px;background:linear-gradient(150deg,${c1},${c2});border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:${size / 2}px">${sh.emoji}</div>`;
+  return `<div class="stack" style="width:${size + (l.length - 1) * 12}px;height:${size * 1.5}px">${l.map((b, i) => `<div style="left:${i * 12}px;z-index:${3 - i}">${coverHTML(b, '')}</div>`).join('')}</div>`;
+}
+function openShelfEditor(id, afterCreate) {
+  const sh = id ? shelf(id) : { name: '', emoji: '🌧', color: 0, kind: 'mood', target: '', deadline: '', note: '' };
+  let emoji = sh.emoji, color = sh.color || 0, kind = sh.kind || 'mood';
+  const ui = openSheet(id ? 'Modifier la pile' : 'Nouvelle pile', `
+    <div class="pills" style="margin-top:0">${[['mood', '🌧 Pile à mood'], ['challenge', '🏆 Challenge'], ['autre', '📚 Autre']].map(([k, l]) => `<button data-k="${k}" class="${k === kind ? 'on' : ''}">${l}</button>`).join('')}</div>
+    <div class="field"><label>Nom de la pile *</label><input id="s-name" maxlength="40" placeholder="Ex. : Lectures cocooning, Cold Winter Challenge…" value="${esc(sh.name)}"></div>
+    <div class="field"><label>Emoji</label><div class="emo">${SHELF_EMOJIS.map(e => `<button data-e="${e}" class="${e === emoji ? 'on' : ''}">${e}</button>`).join('')}</div></div>
+    <div class="field"><label>Couleur</label><div class="emo">${SHELF_COLORS.map((c, i) => `<button data-c="${i}" class="${i === color ? 'on' : ''}" style="background:linear-gradient(135deg,${c[0]},${c[1]})"></button>`).join('')}</div></div>
+    <div id="s-ch" style="display:${kind === 'challenge' ? 'block' : 'none'}">
+      <div class="two"><div class="field"><label>Objectif (nb de livres)</label><input id="s-target" type="number" inputmode="numeric" min="1" value="${esc(sh.target || '')}"></div>
+      <div class="field"><label>Date de fin</label><input id="s-deadline" type="date" value="${esc(sh.deadline || '')}"></div></div>
+    </div>
+    <div class="field"><label>Description / règles (facultatif)</label><textarea id="s-note" rows="3" placeholder="Ex. : 1 livre avec une couverture bleue, 1 romantasy, 1 livre de moins de 300 pages…">${esc(sh.note || '')}</textarea></div>
+    <button class="btn primary block" id="s-save">${id ? 'Enregistrer' : 'Créer la pile'}</button>
+    ${id ? '<button class="btn danger block" style="margin-top:10px" id="s-del">Supprimer la pile</button>' : ''}`);
+  ui.querySelectorAll('[data-k]').forEach(b => b.onclick = () => { kind = b.dataset.k; ui.querySelectorAll('[data-k]').forEach(x => x.classList.toggle('on', x === b)); ui.querySelector('#s-ch').style.display = kind === 'challenge' ? 'block' : 'none';
+    if (!ui.querySelector('#s-name').value) { emoji = kind === 'challenge' ? '🏆' : kind === 'mood' ? '🌧' : '📚'; ui.querySelectorAll('[data-e]').forEach(x => x.classList.toggle('on', x.dataset.e === emoji)); } });
+  ui.querySelectorAll('[data-e]').forEach(b => b.onclick = () => { emoji = b.dataset.e; ui.querySelectorAll('[data-e]').forEach(x => x.classList.toggle('on', x === b)); });
+  ui.querySelectorAll('[data-c]').forEach(b => b.onclick = () => { color = +b.dataset.c; ui.querySelectorAll('[data-c]').forEach(x => x.classList.toggle('on', x === b)); });
+  ui.querySelector('#s-save').onclick = () => {
+    const name = ui.querySelector('#s-name').value.trim(); if (!name) { toast('Donne un nom à ta pile'); return; }
+    const data = { name, emoji, color, kind, note: ui.querySelector('#s-note').value.trim(),
+      target: kind === 'challenge' ? Math.max(0, parseInt(ui.querySelector('#s-target').value) || 0) || '' : '',
+      deadline: kind === 'challenge' ? ui.querySelector('#s-deadline').value : '' };
+    if (id) Object.assign(sh, data);
+    else { const n = Object.assign({ id: uid(), books: [], createdAt: Date.now() }, data); S.shelves.push(n); id = n.id; }
+    save(); closeSheet(); render();
+    toast(afterCreate ? 'Pile créée ✓' : 'Pile enregistrée ✓');
+    afterCreate ? afterCreate(id) : (libFilter = 'shelf:' + id, go('library'));
+  };
+  ui.querySelector('#s-del')?.addEventListener('click', () => {
+    const c = openSheet('Supprimer cette pile ?', `<p class="muted" style="margin-top:0">La pile « ${esc(sh.name)} » sera supprimée. Les livres restent dans ta bibliothèque.</p>
+      <button class="btn block" style="background:var(--danger);color:#fff" id="c-yes">Supprimer</button><button class="btn block" style="margin-top:10px" id="c-no">Annuler</button>`);
+    c.querySelector('#c-no').onclick = closeSheet;
+    c.querySelector('#c-yes').onclick = () => { S.shelves = S.shelves.filter(x => x.id !== sh.id); save(); closeAll(); libFilter = 'toread'; render(); toast('Pile supprimée'); };
+  });
+}
+function openShelfPicker(shId) {
+  const sh = shelf(shId);
+  const order = { toread: 0, wish: 1, reading: 2, read: 3 };
+  const all = [...S.books].sort((a, b) => (order[a.status] - order[b.status]) || a.title.localeCompare(b.title));
+  const ui = openSheet(`${sh.emoji} Ajouter à « ${esc(sh.name)} »`, `
+    <label class="search" style="margin-top:0"><span class="muted">🔍</span><input id="pk-q" placeholder="Filtrer"></label>
+    <div id="pk-list" class="card" style="padding:4px 14px"></div>
+    <button class="btn block" style="margin-top:12px" id="pk-new">＋ Chercher un nouveau livre</button>
+    <button class="btn primary block" style="margin-top:10px" id="pk-done">Terminé</button>`);
+  const list = ui.querySelector('#pk-list');
+  const draw = () => {
+    const q = ui.querySelector('#pk-q').value.trim().toLowerCase();
+    const l = all.filter(b => !q || (b.title + ' ' + b.author).toLowerCase().includes(q));
+    list.innerHTML = l.length ? l.map(b => `<label class="hist" style="cursor:pointer">${coverHTML(b, '')}<div style="flex:1;min-width:0"><div style="font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(b.title)}</div>
+      <div class="muted small">${STATUS[b.status]}</div></div><input type="checkbox" class="chk" data-id="${b.id}" ${(sh.books || []).includes(b.id) ? 'checked' : ''}></label>`).join('')
+      : '<div class="muted small" style="padding:16px 0;text-align:center">Aucun livre. Ajoute-en avec le bouton ci-dessous.</div>';
+    list.querySelectorAll('.chk').forEach(c => c.onchange = () => { toggleInShelf(sh, c.dataset.id); render(); });
+  };
+  ui.querySelector('#pk-q').oninput = draw; draw();
+  ui.querySelector('#pk-done').onclick = () => { closeSheet(); render(); };
+  ui.querySelector('#pk-new').onclick = () => { pendingShelf = shId; closeSheet(); openAdd(); };
+}
+let pendingShelf = null;
+function moveInShelf(sh, bookId, dir) {
+  const i = sh.books.indexOf(bookId), j = i + dir; if (i < 0 || j < 0 || j >= sh.books.length) return;
+  [sh.books[i], sh.books[j]] = [sh.books[j], sh.books[i]]; save(); render();
+}
+function viewShelf(sh, q) {
+  const p = shelfProgress(sh);
+  let l = shelfBooks(sh); if (q) l = l.filter(b => (b.title + ' ' + (b.author || '')).toLowerCase().includes(q));
+  const [c1, c2] = SHELF_COLORS[sh.color || 0];
+  const left = sh.deadline ? daysUntil(sh.deadline) : null;
+  let h = `<div class="card shelf-head" style="background:linear-gradient(135deg,${c1},${c2});color:#fff">
+    <div class="row"><div style="font-size:30px">${sh.emoji}</div><div style="flex:1;min-width:0"><div style="font-family:var(--serif);font-size:20px;font-weight:700">${esc(sh.name)}</div>
+    <div style="opacity:.9;font-size:13px">${{ mood: 'Pile à mood', challenge: 'Challenge littéraire', autre: 'Pile' }[sh.kind || 'autre']} · ${p.total} livre${p.total > 1 ? 's' : ''}</div></div>
+    <button class="btn sm" style="background:#ffffff33;color:#fff" data-shedit="${sh.id}">✎</button></div>
+    ${sh.kind === 'challenge' ? `<div style="margin-top:12px;font-size:13px;font-weight:650">${p.done} / ${p.target || '?'} lus${left !== null ? ` · ${left >= 0 ? 'encore ' + left + ' j' : 'terminé'}` : ''}</div>
+      <div class="bar" style="background:#ffffff40"><i style="width:${p.pct}%;background:#fff"></i></div>` : ''}
+    ${sh.note ? `<div style="margin-top:10px;font-size:13.5px;opacity:.95;white-space:pre-line">${esc(sh.note)}</div>` : ''}</div>
+    <button class="btn block" style="margin:12px 0" data-shadd="${sh.id}">＋ Ajouter des livres à cette pile</button>`;
+  if (!l.length) h += `<div class="empty" style="padding:24px"><div class="bubble">${sh.emoji}</div><h3>${q ? 'Aucun résultat' : 'Pile vide'}</h3>${q ? '' : 'Ajoute des livres de ta bibliothèque ou de nouveaux livres.'}</div>`;
+  else h += `<div class="card">` + l.map((b, i) => `<div class="hist" data-open="${b.id}">
+      <b style="width:22px;text-align:center;color:var(--primary)">${b.status === 'read' ? '✓' : i + 1}</b>${coverHTML(b, '')}
+      <div style="flex:1;min-width:0;${b.status === 'read' ? 'opacity:.6' : ''}"><div style="font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(b.title)}</div><div class="muted small">${STATUS[b.status]}</div></div>
+      ${q ? '' : `<button class="btn sm" data-smv="-1" data-id="${b.id}" ${i === 0 ? 'disabled style="opacity:.3"' : ''}>↑</button><button class="btn sm" data-smv="1" data-id="${b.id}" ${i === l.length - 1 ? 'disabled style="opacity:.3"' : ''}>↓</button>`}</div>`).join('') + `</div>`;
+  setTimeout(() => {
+    document.querySelectorAll('[data-shedit]').forEach(x => x.onclick = () => openShelfEditor(x.dataset.shedit));
+    document.querySelectorAll('[data-shadd]').forEach(x => x.onclick = () => openShelfPicker(x.dataset.shadd));
+    document.querySelectorAll('[data-smv]').forEach(x => x.onclick = e => { e.stopPropagation(); moveInShelf(sh, x.dataset.id, +x.dataset.smv); });
+  });
+  return h;
+}
+
+/* ---------- Calendrier des sorties ---------- */
+let calMonth = null, calDay = null;
+function releases() { return S.books.filter(b => b.releaseDate); }
+function viewAgenda() {
+  const now = new Date();
+  if (!calMonth) { const next = releases().map(b => b.releaseDate).filter(d => d >= dayKey()).sort()[0]; const d = next ? new Date(next + 'T00:00:00') : now; calMonth = [d.getFullYear(), d.getMonth()]; }
+  const [y, m] = calMonth;
+  const first = new Date(y, m, 1), days = new Date(y, m + 1, 0).getDate();
+  const offset = (first.getDay() + 6) % 7;
+  const byDay = {};
+  for (const b of releases()) { const d = new Date(b.releaseDate + 'T00:00:00'); if (d.getFullYear() === y && d.getMonth() === m) (byDay[d.getDate()] ||= []).push(b); }
+  const title = first.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
+  const todayK = dayKey();
+  let cells = '';
+  for (let i = 0; i < offset; i++) cells += '<div class="cday empty"></div>';
+  for (let d = 1; d <= days; d++) {
+    const k = dayKey(new Date(y, m, d)), l = byDay[d] || [];
+    cells += `<button class="cday ${k === todayK ? 'today' : ''} ${l.length ? 'has' : ''} ${calDay === k ? 'sel' : ''}" data-day="${k}">
+      ${l.length ? `<div class="ccov">${coverHTML(l[0], '')}</div>${l.length > 1 ? `<span class="cmore">+${l.length - 1}</span>` : ''}` : ''}<span class="cnum">${d}</span></button>`;
+  }
+  const monthList = Object.keys(byDay).sort((a, b) => a - b).flatMap(d => byDay[d]);
+  const list = calDay ? releases().filter(b => b.releaseDate === calDay) : monthList;
+  const upcoming = releases().filter(b => b.releaseDate >= todayK).sort((a, b) => a.releaseDate.localeCompare(b.releaseDate));
+  let h = `<div class="page-h"><h1>Sorties</h1><button class="chip p" id="cal-add">＋ Ajouter</button></div>
+  <div class="card cal">
+    <div class="row" style="margin-bottom:10px"><button class="btn sm" id="cal-prev">‹</button><div style="flex:1;text-align:center;font-weight:700;text-transform:capitalize;font-family:var(--serif);font-size:18px">${title}</div><button class="btn sm" id="cal-next">›</button></div>
+    <div class="cgrid chead">${['L', 'M', 'M', 'J', 'V', 'S', 'D'].map(x => `<div>${x}</div>`).join('')}</div>
+    <div class="cgrid">${cells}</div>
+    ${upcoming.length ? `<button class="link" id="cal-today" style="margin-top:10px">Aller à la prochaine sortie</button>` : ''}
+  </div>
+  <div class="section"><div class="section-h"><h2>${calDay ? fmtDate(calDay + 'T00:00:00', { weekday: 'long', day: 'numeric', month: 'long' }) : 'Ce mois-ci'}</h2>${calDay ? '<button class="link" id="cal-all">Tout le mois</button>' : ''}</div>`;
+  if (!list.length) h += `<div class="card muted small" style="text-align:center;padding:20px">${releases().length ? 'Aucune sortie prévue ' + (calDay ? 'ce jour-là' : 'ce mois-ci') + '.' : 'Ajoute une date de sortie à un livre de ta wishlist (✎ Modifier la fiche) pour le voir apparaître ici.'}</div>`;
+  else h += `<div class="card">` + list.map(b => { const n = daysUntil(b.releaseDate); return `<div class="hist" data-open="${b.id}">${coverHTML(b, '')}<div style="flex:1;min-width:0"><div style="font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(b.title)}</div><div class="muted small">${esc(b.author || '')}</div><div class="muted small">${releaseLabel(b)}</div></div>${n > 0 ? `<span class="chip a">J-${n}</span>` : n === 0 ? '<span class="chip a">🎉</span>' : ''}</div>`; }).join('') + `</div>`;
+  h += `</div>`;
+  setTimeout(() => {
+    const mv = d => { let [yy, mm] = calMonth; mm += d; if (mm < 0) { mm = 11; yy--; } if (mm > 11) { mm = 0; yy++; } calMonth = [yy, mm]; calDay = null; render(); };
+    document.getElementById('cal-prev').onclick = () => mv(-1);
+    document.getElementById('cal-next').onclick = () => mv(1);
+    document.getElementById('cal-add').onclick = () => openAdd();
+    document.getElementById('cal-all')?.addEventListener('click', () => { calDay = null; render(); });
+    document.getElementById('cal-today')?.addEventListener('click', () => { const d = new Date(upcoming[0].releaseDate + 'T00:00:00'); calMonth = [d.getFullYear(), d.getMonth()]; calDay = upcoming[0].releaseDate; render(); });
+    document.querySelectorAll('[data-day]').forEach(x => x.onclick = () => {
+      const l = releases().filter(b => b.releaseDate === x.dataset.day);
+      if (l.length === 1 && calDay === x.dataset.day) { openBook(l[0].id); return; }
+      calDay = calDay === x.dataset.day ? null : x.dataset.day; render();
+    });
+    // balayer pour changer de mois
+    const g = document.querySelector('.cal'); let sx = null;
+    g.addEventListener('touchstart', e => sx = e.touches[0].clientX, { passive: true });
+    g.addEventListener('touchend', e => { if (sx === null) return; const dx = e.changedTouches[0].clientX - sx; if (Math.abs(dx) > 60) mv(dx < 0 ? 1 : -1); sx = null; });
+  });
+  return h;
+}
+
 /* ---------- Statistiques ---------- */
 function dayTotals() {
   const m = {};
@@ -398,16 +591,16 @@ document.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => go(b.data
 document.getElementById('fab').onclick = () => openAdd();
 
 function render() {
-  document.querySelectorAll('[data-tab]').forEach(b => b.classList.toggle('on', b.dataset.tab === tab));
+  document.querySelectorAll('[data-tab]').forEach(b => b.classList.toggle('on', b.dataset.tab === tab || (tab === 'agenda' && b.dataset.tab === 'home')));
   const v = document.getElementById('view');
-  v.innerHTML = ({ home: viewHome, library: viewLibrary, stats: viewStats, me: viewMe })[tab]();
+  v.innerHTML = ({ home: viewHome, library: viewLibrary, stats: viewStats, me: viewMe, agenda: viewAgenda })[tab]();
   bindView(v);
 }
 function bindView(root) {
   root.querySelectorAll('[data-open]').forEach(e => e.onclick = ev => { ev.stopPropagation(); openBook(e.dataset.open); });
   root.querySelectorAll('[data-progress]').forEach(e => e.onclick = ev => { ev.stopPropagation(); openProgress(e.dataset.progress); });
   root.querySelectorAll('[data-session]').forEach(e => e.onclick = ev => { ev.stopPropagation(); startSession(e.dataset.session); });
-  root.querySelectorAll('[data-go]').forEach(e => e.onclick = () => { if (e.dataset.filter) libFilter = e.dataset.filter; go(e.dataset.go); });
+  root.querySelectorAll('[data-go]').forEach(e => e.onclick = ev => { ev.stopPropagation(); if (e.dataset.filter) libFilter = e.dataset.filter; if (e.dataset.go === 'agenda') { calMonth = null; calDay = null; } go(e.dataset.go); });
 }
 
 /* ---------- Accueil ---------- */
@@ -448,13 +641,29 @@ function viewHome() {
     h += `</div></section>`;
   }
   if (wish.length) {
-    h += `<section class="section"><div class="section-h"><h2>Prochaines sorties</h2><button class="link" data-go="library" data-filter="wish">Wishlist</button></div><div class="card">`;
+    h += `<section class="section"><div class="section-h"><h2>Prochaines sorties</h2><button class="link" data-go="agenda">📅 Calendrier</button></div><div class="card">`;
     for (const b of wish.slice(0, 4)) {
       const n = daysUntil(b.releaseDate);
       h += `<div class="hist" data-open="${b.id}">${coverHTML(b, '')}<div style="flex:1;min-width:0"><div style="font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(b.title)}</div><div class="muted small">${releaseLabel(b)}</div></div>${n !== null && n >= 0 ? `<span class="chip a">J-${n}</span>` : ''}</div>`;
     }
     h += `</div></section>`;
   }
+  if (!wish.length && releases().length) h += `<section class="section"><div class="section-h"><h2>Sorties</h2><button class="link" data-go="agenda">📅 Calendrier</button></div></section>`;
+  const lastRead = S.books.filter(b => b.status === 'read').sort((a, b) => (b.finishedAt || 0) - (a.finishedAt || 0));
+  if (lastRead.length) {
+    h += `<section class="section"><div class="section-h"><h2>Dernières lectures</h2><button class="link" data-go="library" data-filter="read">Tout voir</button></div><div class="hscroll">`;
+    for (const b of lastRead.slice(0, 10)) h += `<div class="mini" data-open="${b.id}">${coverHTML(b, '')}<div class="t">${esc(b.title)}</div>
+      <div class="stars" style="margin-top:2px">${b.rating ? '★'.repeat(b.rating) + '<span style="color:var(--line)">' + '★'.repeat(5 - b.rating) + '</span>' : '<span class="muted small" style="letter-spacing:0">' + (b.finishedAt ? fmtDate(b.finishedAt) : '') + '</span>'}</div></div>`;
+    h += `</div></section>`;
+  }
+  if (S.shelves.length) {
+    h += `<section class="section"><div class="section-h"><h2>Mes piles</h2><button class="link" id="home-newshelf">＋ Nouvelle</button></div><div class="hscroll">`;
+    for (const sh of S.shelves) { const p = shelfProgress(sh); h += `<div class="shelf-card" data-go="library" data-filter="shelf:${sh.id}">${shelfStack(sh, 40)}
+      <div class="t">${sh.emoji} ${esc(sh.name)}</div><div class="muted small">${sh.kind === 'challenge' ? `${p.done}/${p.target || '?'} lus` : `${p.total} livre${p.total > 1 ? 's' : ''}`}</div>
+      ${sh.kind === 'challenge' ? `<div class="bar" style="height:5px;margin-top:6px"><i style="width:${p.pct}%"></i></div>` : ''}</div>`; }
+    h += `</div></section>`;
+  }
+  setTimeout(() => document.getElementById('home-newshelf')?.addEventListener('click', () => openShelfEditor(null)));
   const recent = [...S.logs].sort((a, b) => b.at - a.at).slice(0, 4);
   if (recent.length) {
     h += `<section class="section"><div class="section-h"><h2>Activité récente</h2></div><div class="card">`;
@@ -473,6 +682,8 @@ function histRow(l, title) {
 function viewLibrary() {
   const counts = { reading: 0, toread: 0, wish: 0, read: 0 }; S.books.forEach(b => counts[b.status]++);
   const q = libQuery.trim().toLowerCase();
+  if (libFilter.startsWith('shelf:') && !shelf(libFilter.slice(6))) libFilter = 'toread';
+  const curShelf = libFilter.startsWith('shelf:') ? shelf(libFilter.slice(6)) : null;
   let list = S.books.filter(b => b.status === libFilter && (!q || (b.title + ' ' + (b.author || '')).toLowerCase().includes(q)));
   if (libFilter === 'toread') list = palList().filter(b => list.includes(b));
   else if (libFilter === 'wish') list.sort((a, b) => (a.releaseDate || '9999').localeCompare(b.releaseDate || '9999'));
@@ -480,8 +691,13 @@ function viewLibrary() {
   const lbl = { reading: 'En cours', toread: 'PAL', wish: 'Wishlist', read: 'Lus' };
   let h = `<div class="page-h"><h1>Bibliothèque</h1><span class="chip p">${S.books.length} livre${S.books.length > 1 ? 's' : ''}</span></div>
     <div class="seg">${Object.keys(lbl).map(k => `<button class="${k === libFilter ? 'on' : ''}" onclick="libFilter='${k}';render()">${lbl[k]}<span class="n">${counts[k]}</span></button>`).join('')}</div>
+    <div class="hscroll shelfchips">${S.shelves.map(sh => `<button class="chip ${curShelf === sh ? 'p on' : ''}" onclick="libFilter='shelf:${sh.id}';render()">${sh.emoji} ${esc(sh.name)} <span class="n">${(sh.books || []).length}</span></button>`).join('')}
+      <button class="chip" id="lib-newshelf">＋ Nouvelle pile</button></div>
     <label class="search"><span class="muted">🔍</span><input id="libq" placeholder="Filtrer par titre ou auteur" value="${esc(libQuery)}"></label>`;
-  if (!list.length) {
+  setTimeout(() => document.getElementById('lib-newshelf')?.addEventListener('click', () => openShelfEditor(null)));
+  if (curShelf) {
+    h += viewShelf(curShelf, q);
+  } else if (!list.length) {
     const msg = { reading: 'Aucune lecture en cours', toread: 'Ta PAL est vide', wish: 'Ta wishlist est vide', read: 'Aucun livre terminé pour l’instant' }[libFilter];
     h += `<div class="empty"><div class="bubble">${libFilter === 'read' ? '🏆' : '🫧'}</div><h3>${q ? 'Aucun résultat' : msg}</h3>${q ? '' : '<button class="btn accent" onclick="openAdd()" style="margin-top:8px">＋ Ajouter un livre</button>'}</div>`;
   } else if (libFilter === 'toread') {
@@ -496,6 +712,7 @@ function viewLibrary() {
       ${b.status === 'read' && b.rating ? `<div class="stars">${'★'.repeat(b.rating)}</div>` : ''}
       ${b.status === 'wish' ? `<div class="a" style="color:var(--accent);font-weight:650">${daysUntil(b.releaseDate) > 0 ? 'J-' + daysUntil(b.releaseDate) : (b.releaseDate ? 'Disponible' : '💫')}</div>` : ''}</div>`).join('') + `</div>`;
   }
+  if (libFilter === 'wish' && !curShelf) h = h.replace('<div class="grid">', '<button class="btn block" style="margin-bottom:14px" data-go="agenda">📅 Voir le calendrier des sorties</button><div class="grid">');
   setTimeout(() => {
     document.querySelectorAll('[data-mv]').forEach(x => x.onclick = e => { e.stopPropagation(); movePal(x.dataset.id, +x.dataset.mv); });
     const i = document.getElementById('libq'); if (!i) return;
@@ -580,14 +797,14 @@ function viewMe() {
       <p class="muted small" style="margin-top:0">Tout est enregistré sur ton téléphone. Exporte une sauvegarde de temps en temps pour ne rien perdre.</p>
       <div class="row" style="gap:10px"><button class="btn primary" style="flex:1" onclick="exportData()">⬆ Exporter</button><button class="btn" style="flex:1" onclick="openImport()">⬇ Importer</button></div>
     </div></div>
-  <div class="section" style="text-align:center"><div class="muted small">La Bulle de Kiria · v1.6<br>Données livres : BnF, Google Books & Open Library</div></div>`;
+  <div class="section" style="text-align:center"><div class="muted small">La Bulle de Kiria · v1.7<br>Données livres : BnF, Google Books & Open Library</div></div>`;
 }
 document.addEventListener('change', e => {
   if (e.target.id === 'set-name') { S.settings.name = e.target.value.trim() || 'Kiria'; save(); toast('Prénom enregistré'); }
   if (e.target.id === 'set-goal') { S.settings.dailyGoal = Math.max(1, +e.target.value || 20); save(); toast('Objectif mis à jour'); }
 });
 function exportData() {
-  const json = JSON.stringify({ app: 'la-bulle-de-kiria', version: 1, exportedAt: new Date().toISOString(), books: S.books, logs: S.logs, settings: S.settings });
+  const json = JSON.stringify({ app: 'la-bulle-de-kiria', version: 1, exportedAt: new Date().toISOString(), books: S.books, logs: S.logs, shelves: S.shelves, settings: S.settings });
   if (window.KiriaAndroid && KiriaAndroid.share) { KiriaAndroid.share('La Bulle de Kiria – sauvegarde', json); return; }
   const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([json], { type: 'application/json' }));
   a.download = 'bulle-de-kiria-' + dayKey() + '.json'; a.click(); toast('Sauvegarde exportée');
@@ -600,7 +817,7 @@ function openImport() {
     try {
       const d = JSON.parse(sh.querySelector('#imp').value);
       if (!Array.isArray(d.books)) throw 0;
-      S.books = d.books; S.logs = d.logs || []; S.settings = Object.assign({}, DEFAULT.settings, d.settings || {}); save();
+      S.books = d.books; S.logs = d.logs || []; S.shelves = d.shelves || []; S.settings = Object.assign({}, DEFAULT.settings, d.settings || {}); save();
       closeSheet(); render(); toast(`${S.books.length} livres importés`);
     } catch (e) { toast('Sauvegarde invalide'); }
   };
@@ -812,13 +1029,16 @@ function chooseStatus(data, done) {
   });
 }
 function addBook(data, status) {
+  const toShelf = pendingShelf; pendingShelf = null;
   const now = Date.now();
   const b = Object.assign({ id: uid(), title: '', author: '', pages: 0, cover: '', currentPage: 0, rating: 0, notes: '' }, data,
     { status, addedAt: now, startedAt: (status === 'reading' || status === 'read') ? now : null, finishedAt: status === 'read' ? now : null });
   if (status === 'toread') b.palOrder = palNext();
   if (status === 'wish' && !b.releaseDate && b.year && +b.year > new Date().getFullYear()) b.releaseDate = b.year + '-01-01';
   if (status === 'read') b.currentPage = b.pages;
-  S.books.push(b); save(); render();
+  S.books.push(b);
+  if (toShelf && shelf(toShelf)) shelf(toShelf).books.push(b.id);
+  save(); render();
   toast({ reading: 'Bonne lecture ! 📖', read: 'Ajouté à tes lectures ✓', toread: 'Ajouté à ta PAL 🫧', wish: 'Ajouté à ta wishlist 💫' }[status]);
   return b;
 }
@@ -952,6 +1172,9 @@ function openBook(id) {
     ${b.description ? `<div class="section"><div class="section-h"><h2>Résumé</h2></div><div class="desc" id="d-desc">${esc(b.description.replace(/<[^>]+>/g, ''))}</div><button class="link" id="d-more" style="margin-top:6px">Lire plus</button></div>` : ''}
     <div class="section"><div class="section-h"><h2>Mes notes</h2></div><div class="field" style="margin:0"><textarea id="d-notes" rows="3" placeholder="Citations, impressions, personnages…">${esc(b.notes || '')}</textarea></div></div>
     ${logs.length ? `<div class="section"><div class="section-h"><h2>Historique</h2><span class="muted small">${logs.length} entrée${logs.length > 1 ? 's' : ''}</span></div><div class="card">${logs.slice(0, 30).map(l => histRow(l)).join('')}</div></div>` : ''}
+    <div class="section"><div class="section-h"><h2>Mes piles</h2></div>
+      <div class="chips" id="d-shelves">${S.shelves.map(sh => `<button class="chip ${(sh.books || []).includes(b.id) ? 'p' : ''}" data-shelf="${sh.id}">${(sh.books || []).includes(b.id) ? '✓ ' : ''}${sh.emoji} ${esc(sh.name)}</button>`).join('')}
+      <button class="chip" id="d-newshelf">＋ Nouvelle pile</button></div></div>
     <button class="btn block" style="margin-top:24px" id="d-edition">🔄 Changer d’édition</button>
     <div class="row" style="margin-top:10px;gap:10px"><button class="btn" style="flex:1" id="d-edit">✎ Modifier la fiche</button><button class="btn danger" style="flex:1" id="d-del">Supprimer</button></div>`);
   sh.querySelector('.sh').style.padding = '0 18px';
@@ -967,11 +1190,17 @@ function openBook(id) {
   sh.querySelector('#d-notes').onchange = e => { b.notes = e.target.value; save(); toast('Note enregistrée'); };
   sh.querySelector('#d-edit').onclick = () => openEdit(id);
   sh.querySelector('#d-edition').onclick = () => openAdd(id);
+  sh.querySelectorAll('[data-shelf]').forEach(c => c.onclick = () => {
+    const s2 = shelf(c.dataset.shelf), added = toggleInShelf(s2, id);
+    c.classList.toggle('p', added); c.textContent = (added ? '✓ ' : '') + s2.emoji + ' ' + s2.name; render();
+    toast(added ? `Ajouté à « ${s2.name} »` : `Retiré de « ${s2.name} »`);
+  });
+  sh.querySelector('#d-newshelf').onclick = () => openShelfEditor(null, nid => { toggleInShelf(shelf(nid), id); closeSheet(); setTimeout(() => openBook(id), 150); });
   sh.querySelector('#d-del').onclick = () => {
     const c = openSheet('Supprimer ce livre ?', `<p class="muted" style="margin-top:0">« ${esc(b.title)} » et son historique de lecture seront supprimés.</p>
       <button class="btn block" style="background:var(--danger);color:#fff" id="c-yes">Supprimer</button><button class="btn block" style="margin-top:10px" id="c-no">Annuler</button>`);
     c.querySelector('#c-no').onclick = closeSheet;
-    c.querySelector('#c-yes').onclick = () => { S.books = S.books.filter(x => x.id !== id); S.logs = S.logs.filter(l => l.bookId !== id); save(); closeAll(); render(); toast('Livre supprimé'); };
+    c.querySelector('#c-yes').onclick = () => { S.books = S.books.filter(x => x.id !== id); S.logs = S.logs.filter(l => l.bookId !== id); S.shelves.forEach(x => x.books = (x.books || []).filter(i => i !== id)); save(); closeAll(); render(); toast('Livre supprimé'); };
   };
 }
 function setStatus(b, st) {
@@ -1063,6 +1292,7 @@ function endSession() {
 window.kiriaBack = function () {
   if (stack.length) { closeSheet(); return true; }
   if (S.session) { toast('Appuie sur ■ pour terminer la session'); return true; }
+  if (tab === 'library' && libFilter.startsWith('shelf:')) { libFilter = 'toread'; render(); return true; }
   if (tab !== 'home') { go('home'); return true; }
   return false;
 };
