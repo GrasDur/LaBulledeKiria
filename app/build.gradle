@@ -10,8 +10,8 @@ android {
         applicationId 'fr.kiria.bulle'
         minSdk 24
         targetSdk 35
-        versionCode 9
-        versionName '1.8'
+        versionCode 10
+        versionName '1.9'
     }
 
     // Clé de signature FIXE : indispensable pour qu'Android accepte
@@ -43,4 +43,5 @@ android {
 
 dependencies {
     implementation 'androidx.webkit:webkit:1.12.1'
+    implementation 'androidx.core:core:1.13.1'
 }

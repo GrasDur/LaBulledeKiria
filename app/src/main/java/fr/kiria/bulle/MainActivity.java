@@ -2,7 +2,15 @@ package fr.kiria.bulle;
 
 import android.annotation.SuppressLint;
 import android.app.Activity;
+import android.content.ClipData;
+import android.content.ClipboardManager;
+import android.content.ContentResolver;
+import android.content.ContentValues;
+import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
+import android.os.Environment;
+import android.provider.MediaStore;
 import android.content.res.Configuration;
 import android.graphics.Color;
 import android.net.Uri;
@@ -22,11 +30,16 @@ import android.webkit.WebChromeClient;
 import android.webkit.ValueCallback;
 import android.widget.FrameLayout;
 
+import androidx.core.content.FileProvider;
 import androidx.webkit.WebViewAssetLoader;
 
 import org.json.JSONObject;
 
 import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
@@ -152,6 +165,47 @@ public class MainActivity extends Activity {
         }
     }
 
+    private static void writeFile(File f, String text) throws Exception {
+        try (FileOutputStream o = new FileOutputStream(f)) {
+            o.write(text.getBytes(StandardCharsets.UTF_8));
+        }
+    }
+
+    /** Écrit un fichier dans Téléchargements/LaBulleDeKiria. Retourne l'emplacement lisible. */
+    private String writeDownload(String name, String text, boolean reuse) throws Exception {
+        byte[] data = text.getBytes(StandardCharsets.UTF_8);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            ContentResolver cr = getContentResolver();
+            SharedPreferences prefs = getSharedPreferences("backup", MODE_PRIVATE);
+            if (reuse) {
+                String saved = prefs.getString("auto_uri", null);
+                if (saved != null) {
+                    try (OutputStream o = cr.openOutputStream(Uri.parse(saved), "wt")) {
+                        if (o != null) { o.write(data); return "Téléchargements/LaBulleDeKiria/" + name; }
+                    } catch (Exception ignored) { }
+                }
+            }
+            ContentValues v = new ContentValues();
+            v.put(MediaStore.MediaColumns.DISPLAY_NAME, name);
+            v.put(MediaStore.MediaColumns.MIME_TYPE, "application/json");
+            v.put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/LaBulleDeKiria");
+            Uri uri = cr.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, v);
+            if (uri == null) throw new Exception("création impossible");
+            try (OutputStream o = cr.openOutputStream(uri, "wt")) {
+                if (o == null) throw new Exception("écriture impossible");
+                o.write(data);
+            }
+            if (reuse) prefs.edit().putString("auto_uri", uri.toString()).apply();
+            return "Téléchargements/LaBulleDeKiria/" + name;
+        } else {
+            File dir = new File(getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "LaBulleDeKiria");
+            dir.mkdirs();
+            File f = new File(dir, name);
+            writeFile(f, text);
+            return f.getAbsolutePath();
+        }
+    }
+
     @Override
     protected void onSaveInstanceState(Bundle outState) {
         super.onSaveInstanceState(outState);
@@ -174,15 +228,69 @@ public class MainActivity extends Activity {
 
     /** Petites fonctions natives accessibles depuis la page (window.KiriaAndroid). */
     public class Bridge {
+        /** Ancienne méthode : partage en texte (gardée pour compatibilité). */
         @JavascriptInterface
         public void share(String subject, String text) {
-            runOnUiThread(() -> {
-                Intent send = new Intent(Intent.ACTION_SEND);
-                send.setType("text/plain");
-                send.putExtra(Intent.EXTRA_SUBJECT, subject);
-                send.putExtra(Intent.EXTRA_TEXT, text);
-                startActivity(Intent.createChooser(send, "Exporter la sauvegarde"));
-            });
+            shareBackup(text);
+        }
+
+        /** Partage la sauvegarde comme un FICHIER (pas de limite de taille). */
+        @JavascriptInterface
+        public String shareBackup(String json) {
+            try {
+                File dir = new File(getCacheDir(), "export");
+                dir.mkdirs();
+                File f = new File(dir, "LaBulleDeKiria-sauvegarde.json");
+                writeFile(f, json);
+                Uri uri = FileProvider.getUriForFile(MainActivity.this, getPackageName() + ".files", f);
+                runOnUiThread(() -> {
+                    try {
+                        Intent send = new Intent(Intent.ACTION_SEND);
+                        send.setType("application/json");
+                        send.putExtra(Intent.EXTRA_STREAM, uri);
+                        send.putExtra(Intent.EXTRA_SUBJECT, "La Bulle de Kiria – sauvegarde");
+                        send.setClipData(ClipData.newRawUri("sauvegarde", uri));
+                        send.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                        startActivity(Intent.createChooser(send, "Envoyer la sauvegarde"));
+                    } catch (Exception e) {
+                        webView.evaluateJavascript("toast('Partage impossible')", null);
+                    }
+                });
+                return "ok";
+            } catch (Exception e) {
+                return "erreur: " + e.getMessage();
+            }
+        }
+
+        /** Enregistre la sauvegarde dans Téléchargements/LaBulleDeKiria (conservée même si l'app est désinstallée). */
+        @JavascriptInterface
+        public String saveBackup(String name, String json) {
+            try {
+                return writeDownload(name, json, false);
+            } catch (Exception e) {
+                return "erreur: " + e.getMessage();
+            }
+        }
+
+        /** Sauvegarde automatique (même fichier, remplacé à chaque fois). */
+        @JavascriptInterface
+        public String autoBackup(String json) {
+            try {
+                return writeDownload("sauvegarde-auto.json", json, true);
+            } catch (Exception e) {
+                return "erreur: " + e.getMessage();
+            }
+        }
+
+        @JavascriptInterface
+        public String copyText(String text) {
+            try {
+                ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+                cm.setPrimaryClip(ClipData.newPlainText("La Bulle de Kiria", text));
+                return "ok";
+            } catch (Exception e) {
+                return "erreur: " + e.getMessage();
+            }
         }
 
         /** Requête HTTP GET native (sans restriction CORS), limitée aux catalogues de livres.
