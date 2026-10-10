@@ -81,9 +81,11 @@ public class MainActivity extends Activity {
                 fileCallback = callback;
                 Intent pick = new Intent(Intent.ACTION_GET_CONTENT);
                 pick.addCategory(Intent.CATEGORY_OPENABLE);
-                pick.setType("image/*");
+                String[] types = params.getAcceptTypes();
+                boolean image = types != null && types.length > 0 && types[0] != null && types[0].startsWith("image");
+                pick.setType(image ? "image/*" : "*/*");
                 try {
-                    startActivityForResult(Intent.createChooser(pick, "Choisir une couverture"), PICK_IMAGE);
+                    startActivityForResult(Intent.createChooser(pick, image ? "Choisir une couverture" : "Choisir la sauvegarde"), PICK_IMAGE);
                 } catch (Exception e) {
                     fileCallback = null;
                     return false;

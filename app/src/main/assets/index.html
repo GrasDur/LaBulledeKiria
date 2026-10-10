@@ -794,10 +794,10 @@ function viewMe() {
   </div>
   <div class="section"><div class="section-h"><h2>Mes données</h2></div>
     <div class="card">
-      <p class="muted small" style="margin-top:0">Tout est enregistré sur ton téléphone. Exporte une sauvegarde de temps en temps pour ne rien perdre.</p>
+      <p class="muted small" style="margin-top:0">Tout est enregistré sur ton téléphone. Exporte une sauvegarde de temps en temps (vers Google Drive, Keep ou par e-mail) pour ne rien perdre.</p>
       <div class="row" style="gap:10px"><button class="btn primary" style="flex:1" onclick="exportData()">⬆ Exporter</button><button class="btn" style="flex:1" onclick="openImport()">⬇ Importer</button></div>
     </div></div>
-  <div class="section" style="text-align:center"><div class="muted small">La Bulle de Kiria · v1.7<br>Données livres : BnF, Google Books & Open Library</div></div>`;
+  <div class="section" style="text-align:center"><div class="muted small">La Bulle de Kiria · v1.8<br>Données livres : BnF, Google Books & Open Library</div></div>`;
 }
 document.addEventListener('change', e => {
   if (e.target.id === 'set-name') { S.settings.name = e.target.value.trim() || 'Kiria'; save(); toast('Prénom enregistré'); }
@@ -809,20 +809,31 @@ function exportData() {
   const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([json], { type: 'application/json' }));
   a.download = 'bulle-de-kiria-' + dayKey() + '.json'; a.click(); toast('Sauvegarde exportée');
 }
+function applyBackup(text) {
+  const d = JSON.parse(text);
+  if (!Array.isArray(d.books)) throw new Error('format');
+  S.books = d.books; S.logs = d.logs || []; S.shelves = d.shelves || []; S.settings = Object.assign({}, DEFAULT.settings, d.settings || {}); save();
+  return S.books.length;
+}
 function openImport() {
-  const sh = openSheet('Importer une sauvegarde', `<p class="muted small" style="margin-top:0">Colle ici le contenu d’une sauvegarde exportée. Elle remplacera les données actuelles.</p>
-    <div class="field"><textarea id="imp" rows="8" placeholder='{"app":"la-bulle-de-kiria",...}'></textarea></div>
-    <button class="btn primary block" id="imp-go">Importer</button>`);
-  sh.querySelector('#imp-go').onclick = () => {
-    try {
-      const d = JSON.parse(sh.querySelector('#imp').value);
-      if (!Array.isArray(d.books)) throw 0;
-      S.books = d.books; S.logs = d.logs || []; S.shelves = d.shelves || []; S.settings = Object.assign({}, DEFAULT.settings, d.settings || {}); save();
-      closeSheet(); render(); toast(`${S.books.length} livres importés`);
-    } catch (e) { toast('Sauvegarde invalide'); }
+  const sh = openSheet('Importer une sauvegarde', `<p class="muted small" style="margin-top:0">Choisis le fichier de sauvegarde, ou colle son contenu. Il remplacera les données actuelles.</p>
+    <button class="btn primary block" id="imp-file">📂 Choisir le fichier de sauvegarde</button>
+    <div class="muted small" style="text-align:center;margin:14px 0 8px">— ou —</div>
+    <div class="field"><textarea id="imp" rows="6" placeholder='Colle ici le texte copié lors de l’export'></textarea></div>
+    <button class="btn block" id="imp-go">Importer le texte collé</button>`);
+  const done = n => { closeSheet(); render(); toast(`${n} livres importés ✓`); bubbles(); };
+  sh.querySelector('#imp-go').onclick = () => { try { done(applyBackup(sh.querySelector('#imp').value)); } catch (e) { toast('Sauvegarde invalide'); } };
+  sh.querySelector('#imp-file').onclick = () => {
+    const inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'application/json,text/plain,.json,.txt';
+    inp.onchange = () => {
+      const f = inp.files && inp.files[0]; if (!f) return;
+      const r = new FileReader();
+      r.onload = () => { try { done(applyBackup(r.result)); } catch (e) { toast('Ce fichier n’est pas une sauvegarde valide'); } };
+      r.readAsText(f);
+    };
+    inp.click();
   };
 }
-
 /* ---------- Feuilles (bottom sheets) ---------- */
 const stack = [];
 function openSheet(title, body) {
