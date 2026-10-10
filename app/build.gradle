@@ -10,8 +10,8 @@ android {
         applicationId 'fr.kiria.bulle'
         minSdk 24
         targetSdk 35
-        versionCode 13
-        versionName '2.2'
+        versionCode 14
+        versionName '2.3'
     }
 
     // Clé de signature FIXE : indispensable pour qu'Android accepte

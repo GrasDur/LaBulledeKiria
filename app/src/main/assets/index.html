@@ -216,6 +216,26 @@ svg text{fill:var(--muted);font-family:var(--font)}
 .kpis .kpi .v{font-size:21px}
 .mhead{font-size:12px;font-weight:800;letter-spacing:.8px;text-transform:uppercase;color:var(--primary);padding:12px 0 2px}
 .mhead:first-child{padding-top:2px}
+.search{min-width:0}
+.search input{min-width:0;width:100%}
+.sortsel{display:flex;align-items:center;gap:4px;background:var(--surface);border:1.5px solid var(--line);border-radius:16px;padding:0 6px 0 12px;color:var(--muted);font-size:14px;flex:none}
+.sortsel select{border:0;background:none;padding:12px 4px;font-size:14px;font-weight:650;color:var(--ink);outline:none;max-width:130px}
+.gitem{position:relative}
+.pbadge{position:absolute;top:4px;right:4px;z-index:3;font-size:14px;background:#000a;border-radius:8px;padding:0 4px}
+.quote{position:relative;background:var(--surface);border-left:4px solid var(--accent);border-radius:12px;padding:12px 40px 10px 14px;margin-bottom:10px;cursor:pointer}
+.quote .qt{font-family:var(--serif);font-size:15.5px;line-height:1.45;font-style:italic}
+.quote .qm{font-size:12.5px;color:var(--muted);margin-top:6px}
+.qcopy{position:absolute;top:8px;right:8px;width:28px;height:28px;border-radius:8px;background:var(--surface-2);color:var(--muted)}
+.draw-stage{min-height:250px;display:flex;flex-direction:column;align-items:center;justify-content:center;margin:16px 0;text-align:center}
+.draw-stage .t{font-family:var(--serif);font-weight:700;font-size:17px;margin-top:10px;max-width:260px}
+.draw-stage.spin2 .cover{transform:rotate(-3deg) scale(.96)}
+.draw-stage.won .cover{animation:won .6s ease}
+@keyframes won{0%{transform:scale(.8)}60%{transform:scale(1.08)}100%{transform:scale(1)}}
+.gtab{width:100%;border-collapse:collapse;margin-top:12px;font-size:13px}
+.gtab th{text-align:left;color:var(--muted);font-weight:650;padding:6px 4px;border-bottom:1px solid var(--line)}
+.gtab td{padding:7px 4px;border-bottom:1px solid var(--line);font-variant-numeric:tabular-nums}
+.gtab tr:last-child td{border:0}
+.shelfchips .sep{flex:none;width:1px;background:var(--line);margin:4px 2px}
 .hist .dot{width:34px;height:34px;border-radius:50%;background:var(--primary-soft);color:var(--primary);display:flex;align-items:center;justify-content:center;font-size:15px;flex:none}
 .rate button{font-size:30px;color:var(--line);padding:0 2px}
 .rate button.on{color:#F5B301}
@@ -280,7 +300,7 @@ let S;
 try { S = JSON.parse(localStorage.getItem(KEY)) || structuredClone(DEFAULT); } catch (e) { S = structuredClone(DEFAULT); }
 S.settings = Object.assign({}, DEFAULT.settings, S.settings || {});
 S.books = S.books || []; S.logs = S.logs || []; S.shelves = S.shelves || []; S.radar = S.radar || {};
-function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { toast('Impossible d’enregistrer'); } scheduleAutoBackup(); }
+function save() { try { recordPalSize(); localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { toast('Impossible d’enregistrer'); } scheduleAutoBackup(); }
 
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 const dayKey = (d = new Date()) => { d = new Date(d); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
@@ -403,7 +423,7 @@ function coverHTML(b, cls) {
 /* ---------- Formats (papier, ebook, audio, webtoon) ---------- */
 const FORMATS = {
   paper: { e: '📕', l: 'Papier', u: 'p', one: 'page', many: 'pages', add: '＋ Pages' },
-  ebook: { e: '📱', l: 'Ebook', u: 'p', one: 'page', many: 'pages', add: '＋ Pages' },
+  ebook: { e: '📱', l: 'Numérique', u: 'p', one: 'page', many: 'pages', add: '＋ Pages' },
   audio: { e: '🎧', l: 'Audio', u: 'min', one: 'minute', many: 'minutes', add: '＋ Écoute' },
   webtoon: { e: '🖼', l: 'Webtoon', u: 'ch', one: 'chapitre', many: 'chapitres', add: '＋ Chapitres' }
 };
@@ -617,56 +637,118 @@ function inLibrary(item) {
   const k = normKey(item.title), a = normKey(firstAuthor(item.author)).slice(0, 6);
   return S.books.some(b => normKey(b.title) === k && normKey(firstAuthor(b.author)).slice(0, 6) === a);
 }
-const radarKey = it => normKey(it.title) + '|' + normKey(firstAuthor(it.author)).slice(0, 8);
+const radarKey = it => { const w = nrm(it.title).replace(/\(.*?\)|\b(tome|t|vol|volume|livre|book)\.?\s*\d+\b|edition collector|collector|broche|poche|relie/g, ' ').split(/[^a-z0-9]+/).filter(x => x.length > 2); return [...new Set(w)].sort().join('') + '|' + normKey(firstAuthor(it.author)).slice(0, 8); };
 let radarRunning = false;
+const PUBLISHER_SUGGESTIONS = ['Hugo Roman', 'Hlab', 'Black Ink Editions', 'Korrigan', 'De Saxus', 'Chatterley', 'Nox', 'Bragelonne', 'Milady', 'Hachette Romans', 'La Martinière', 'Plumes du Web', 'BMR', 'Collection R'];
+/* Séries de la bibliothèque : « La Cour des Corbeaux - Tome 1 » → « La Cour des Corbeaux » */
+function followedSeries() {
+  const out = new Map();
+  for (const b of S.books) {
+    const m = (b.title || '').match(/^(.{3,60}?)\s*(?:[-–:,(]\s*)?(?:tome|t\.?|vol\.?|volume|livre|book)\s*\d+/i);
+    if (m) { const name = m[1].replace(/[-–:,(\s]+$/, '').trim(); if (name.length > 2) out.set(normKey(name), { name, author: firstAuthor(b.author), tags: b.tags || [] }); }
+  }
+  return [...out.values()];
+}
+function authorTags(author) {
+  const k = normKey(firstAuthor(author)).slice(0, 6), t = new Set();
+  for (const b of S.books) if (normKey(firstAuthor(b.author)).slice(0, 6) === k) (b.tags || []).forEach(x => t.add(x));
+  return [...t];
+}
 async function scanRadar(onStep) {
   if (radarRunning) return;
   radarRunning = true;
   const r = radarState();
-  const authors = followedAuthors().slice(0, 8);
-  const jobs = authors.map(a => ({ kind: 'author', q: a }))
+  r.publishers = r.publishers || [];
+  const authors = followedAuthors();
+  const today = dayKey(), found = new Map();
+  let ok = 0, fail = 0, done = 0;
+  const add = it => {
+    if (!it.releaseDate || it.releaseDate <= today || it.lang === 'en' || (it.lang && it.lang !== 'fr' && it.langSure)) return;
+    const k = radarKey(it);
+    const prev = found.get(k);
+    if (prev) {
+      prev.tags = [...new Set(prev.tags.concat(it.tags))];
+      if (it.why === 'author' && prev.why !== 'author') { prev.why = 'author'; prev.whyLabel = it.whyLabel; }
+      if (!prev.cover && it.cover) prev.cover = it.cover;
+      if (!prev.description && it.description) prev.description = it.description;
+      if (it.source === 'Fnac' && it.format === 'paper' && prev.format !== 'paper') { prev.releaseDate = it.releaseDate; prev.link = it.link; prev.edition = it.edition; prev.format = 'paper'; }
+      return;
+    }
+    found.set(k, it);
+  };
+  // --- Apple Books (ebooks en précommande)
+  const appleJobs = authors.slice(0, 8).map(a => ({ kind: 'author', q: a }))
     .concat(S.settings.interests.flatMap(t => (GENRE_QUERIES[t] || [tagById(t)?.l]).filter(Boolean).map(q => ({ kind: 'genre', q, tag: t }))))
     .concat((S.settings.customTags || []).filter(t => S.settings.interests.includes(t.id) && t.kw).map(t => ({ kind: 'genre', q: t.kw, tag: t.id })));
-  const today = dayKey(), found = new Map();
-  let ok = 0, fail = 0;
-  for (let i = 0; i < jobs.length; i++) {
-    const j = jobs[i];
-    onStep && onStep(i, jobs.length, j);
-    try {
-      const url = 'https://itunes.apple.com/search?country=fr&lang=fr_fr&media=ebook&entity=ebook&limit=' + (j.kind === 'author' ? 50 : 100)
-        + (j.kind === 'author' ? '&attribute=authorTerm' : '') + '&term=' + encodeURIComponent(j.q);
-      const d = JSON.parse(await httpText(url));
-      ok++;
-      for (const raw of (d.results || [])) {
-        const rd = (raw.releaseDate || '').slice(0, 10);
-        if (!raw.trackName || !rd || rd <= today) continue;
-        const it = appleMap(raw);
-        if (it.lang === 'en') continue;
-        it.tags = classify(it);
-        if (j.kind === 'author') { if (normKey(firstAuthor(it.author)).slice(0, 6) !== normKey(j.q).slice(0, 6)) continue; it.why = 'author'; it.whyLabel = '✍️ ' + firstAuthor(it.author); }
-        else {
-          const fiction = /roman|fantas|fiction|sentiment|young adult|imaginaire|new adult|érotique|erotique|romance/i.test((raw.genres || []).join(' '));
-          if (!it.tags.length && !fiction) continue;
-          if (!it.tags.length) it.tags = [j.tag];
-          it.why = 'genre';
+  // --- Fnac (éditions françaises, papier) : auteurs suivis, séries, maisons d'édition
+  const fnacJobs = S.settings.fnacOff ? [] : authors.slice(0, 14).map(a => ({ kind: 'author', q: a }))
+    .concat(followedSeries().slice(0, 6).map(s => ({ kind: 'series', q: s.name, s })))
+    .concat(r.publishers.slice(0, 6).map(p => ({ kind: 'publisher', q: p })));
+  const total = appleJobs.length + fnacJobs.length;
+  const step = j => { done++; onStep && onStep(done - 1, total, j); };
+  const appleLoop = (async () => {
+    for (const j of appleJobs) {
+      step(Object.assign({ src: 'Apple' }, j));
+      try {
+        const url = 'https://itunes.apple.com/search?country=fr&lang=fr_fr&media=ebook&entity=ebook&limit=' + (j.kind === 'author' ? 50 : 100)
+          + (j.kind === 'author' ? '&attribute=authorTerm' : '') + '&term=' + encodeURIComponent(j.q);
+        const d = JSON.parse(await httpText(url));
+        ok++;
+        for (const raw of (d.results || [])) {
+          const rd = (raw.releaseDate || '').slice(0, 10);
+          if (!raw.trackName || !rd || rd <= today) continue;
+          const it = appleMap(raw);
+          it.tags = classify(it);
+          if (j.kind === 'author') {
+            if (normKey(firstAuthor(it.author)).slice(0, 6) !== normKey(j.q).slice(0, 6)) continue;
+            it.why = 'author'; it.whyLabel = '✍️ ' + firstAuthor(it.author); it.tags = [...new Set(it.tags.concat(authorTags(it.author)))];
+          } else {
+            const fiction = /roman|fantas|fiction|sentiment|young adult|imaginaire|new adult|érotique|erotique|romance/i.test((raw.genres || []).join(' '));
+            if (!it.tags.length && !fiction) continue;
+            if (!it.tags.length) it.tags = [j.tag];
+            it.why = 'genre';
+          }
+          add(it);
         }
-        const k = radarKey(it);
-        const prev = found.get(k);
-        if (prev) { prev.tags = [...new Set(prev.tags.concat(it.tags))]; if (it.why === 'author') { prev.why = 'author'; prev.whyLabel = it.whyLabel; } continue; }
-        found.set(k, it);
+      } catch (e) { fail++; }
+      await new Promise(res => setTimeout(res, 1600)); // Apple limite ~20 recherches/minute
+    }
+  })();
+  const fnacLoop = (async () => {
+    for (const j of fnacJobs) {
+      step(Object.assign({ src: 'Fnac' }, j));
+      for (let page = 1; page <= (j.kind === 'publisher' ? 2 : 2); page++) {
+        try {
+          const html = await fnacHtml(FNAC_SEARCH(j.q) + (page > 1 ? '&PageIndex=' + page : ''));
+          const items = parseFnacSearch(html);
+          if (!items.length && FNAC_BLOCK.test(html)) { fnacState = '🔒'; throw new Error('vérification'); }
+          ok++;
+          for (const it of items) {
+            if (it.format === 'audio') continue;
+            if (j.kind === 'author') {
+              if (normKey(firstAuthor(it.author)).slice(0, 6) !== normKey(j.q).slice(0, 6)) continue;
+              it.why = 'author'; it.whyLabel = '✍️ ' + firstAuthor(it.author);
+            } else if (j.kind === 'series') {
+              if (!normKey(it.title).includes(normKey(j.q).slice(0, 10))) continue;
+              it.why = 'author'; it.whyLabel = '📚 ' + j.q;
+            } else { it.why = 'author'; it.whyLabel = '🏢 ' + j.q; }
+            it.tags = [...new Set(classify(it).concat(j.kind === 'series' ? j.s.tags : authorTags(it.author)))];
+            add(it);
+          }
+          if (items.length < 18) break; // pas de page suivante utile
+        } catch (e) { fail++; if (fnacState === '🔒') return; break; }
       }
-    } catch (e) { fail++; }
-    await new Promise(res => setTimeout(res, 1600)); // Apple limite ~20 recherches/minute
-  }
+    }
+  })();
+  await Promise.all([appleLoop, fnacLoop]);
   radarRunning = false;
-  if (!ok) { onStep && onStep(jobs.length, jobs.length, null); return { ok, fail, n: r.items.length }; }
+  if (!ok) { onStep && onStep(total, total, null); return { ok, fail, n: r.items.length }; }
   const items = [...found.values()].map(it => Object.assign(it, { rk: radarKey(it) }));
-  // garder les épinglés même s'ils n'ont pas été retrouvés cette fois
   for (const old of r.items) if (r.pinned.includes(old.rk) && !items.some(x => x.rk === old.rk) && old.releaseDate > today) items.push(old);
   r.items = items.sort((a, b) => a.releaseDate.localeCompare(b.releaseDate));
   r.scannedAt = Date.now();
   save();
-  onStep && onStep(jobs.length, jobs.length, null);
+  onStep && onStep(total, total, null);
   return { ok, fail, n: items.length };
 }
 /* Sorties détectées visibles (filtre de genres, masquées, déjà dans la bibliothèque) */
@@ -689,7 +771,8 @@ function openRadarItem(rk) {
   const tags = (it.tags || []).map(t => `<span class="chip p">${tagChip(t)}</span>`).join('');
   const sh = openSheet('', `
     <div class="detail-top">${coverHTML(it, 'c-lg')}<div style="min-width:0"><div class="chip a" style="margin-bottom:8px">✨ Sortie détectée</div><h2>${esc(it.title)}</h2><div class="muted" style="margin-top:6px">${esc(it.author || '')}</div></div></div>
-    <div class="chips"><span class="chip">📅 ${releaseLabel(it)}</span>${it.whyLabel ? `<span class="chip">${esc(it.whyLabel)}</span>` : ''}${tags}</div>
+    <div class="chips"><span class="chip">📅 ${releaseLabel(it)}</span>${it.whyLabel ? `<span class="chip">${esc(it.whyLabel)}</span>` : ''}<span class="chip">${it.source === 'Fnac' ? '🛒 Fnac' + (it.edition ? ' · ' + esc(it.edition) : '') : '🍎 Apple Books'}</span>${tags}</div>
+    ${it.link ? `<a class="btn block" style="margin-top:12px;text-decoration:none" href="${esc(it.link)}">${it.source === 'Fnac' ? '🛒 Voir sur la Fnac' : '🍎 Voir sur Apple Books'}</a>` : ''}
     ${it.description ? `<div class="section"><div class="section-h"><h2>Résumé</h2></div><div class="desc open">${esc(it.description)}</div></div>` : ''}
     <div style="margin-top:20px">
       <button class="btn accent block" id="rd-add">💫 Ajouter à ma wishlist</button>
@@ -709,7 +792,7 @@ function openRadarSettings() {
   const r = radarState();
   const authors = followedAuthors();
   const sh = openSheet('Mes envies de lecture', `
-    <p class="muted small" style="margin-top:0">Le radar cherche dans Apple Books les livres à paraître qui correspondent à tes genres et aux auteurs que tu suis.</p>
+    <p class="muted small" style="margin-top:0">Le radar cherche dans Apple Books et à la Fnac les livres à paraître qui correspondent à tes genres et aux auteurs que tu suis.</p>
     <div class="section-h" style="margin-top:6px"><h2 style="font-size:16px">Genres qui m'intéressent</h2></div>
     <div class="chips" id="rs-tags">${allTags().map(t => `<button class="chip ${S.settings.interests.includes(t.id) ? 'p' : ''}" data-t="${t.id}">${S.settings.interests.includes(t.id) ? '✓ ' : ''}${t.e} ${esc(t.l)}</button>`).join('')}
       <button class="chip" id="rs-newtag">＋ Autre genre</button></div>
@@ -717,6 +800,10 @@ function openRadarSettings() {
     <p class="muted small" style="margin-top:-6px">Ajoutés automatiquement depuis ta bibliothèque. Touche un nom pour l’enlever.</p>
     <div class="chips" id="rs-auth">${authors.map(a => `<button class="chip" data-a="${esc(a)}">${esc(a)} ✕</button>`).join('') || '<span class="muted small">Aucun pour l’instant</span>'}</div>
     <div class="row" style="gap:8px;margin-top:10px"><input id="rs-a" placeholder="Suivre un auteur (ex. Rebecca Yarros)" style="flex:1;border:1.5px solid var(--line);background:var(--surface);border-radius:14px;padding:11px 12px;font-size:15px"><button class="btn sm primary" id="rs-add">Suivre</button></div>
+    <div class="section-h" style="margin-top:18px"><h2 style="font-size:16px">Maisons d'édition suivies</h2><span class="muted small">via la Fnac</span></div>
+    <div class="chips" id="rs-pub">${PUBLISHER_SUGGESTIONS.concat((r.publishers || []).filter(x => !PUBLISHER_SUGGESTIONS.includes(x))).map(p => `<button class="chip ${(r.publishers || []).includes(p) ? 'p' : ''}" data-pub="${esc(p)}">${(r.publishers || []).includes(p) ? '✓ ' : ''}${esc(p)}</button>`).join('')}</div>
+    <div class="row" style="gap:8px;margin-top:10px"><input id="rs-p" placeholder="Autre maison d'édition" style="flex:1;border:1.5px solid var(--line);background:var(--surface);border-radius:14px;padding:11px 12px;font-size:15px"><button class="btn sm primary" id="rs-padd">Suivre</button></div>
+    ${followedSeries().length ? `<div class="section-h" style="margin-top:18px"><h2 style="font-size:16px">Séries suivies</h2><span class="muted small">auto</span></div><div class="chips">${followedSeries().map(x => `<span class="chip">📚 ${esc(x.name)}</span>`).join('')}</div>` : ''}
     <button class="btn accent block" style="margin-top:20px" id="rs-scan">📡 Chercher les sorties maintenant</button>
     ${r.hidden.length ? `<button class="btn block" style="margin-top:10px" id="rs-unhide">Réafficher les ${r.hidden.length} sortie${r.hidden.length > 1 ? 's' : ''} masquée${r.hidden.length > 1 ? 's' : ''}</button>` : ''}`);
   sh.querySelectorAll('[data-t]').forEach(c => c.onclick = () => {
@@ -733,6 +820,9 @@ function openRadarSettings() {
     r.authors.unshift(a); r.removedAuthors = r.removedAuthors.filter(x => x !== a); save(); closeSheet(); openRadarSettings(); toast('Auteur suivi ✓');
   };
   sh.querySelector('#rs-scan').onclick = () => { closeSheet(); runRadarUI(); };
+  r.publishers = r.publishers || [];
+  sh.querySelectorAll('[data-pub]').forEach(c => c.onclick = () => { const p = c.dataset.pub, i = r.publishers.indexOf(p); i >= 0 ? r.publishers.splice(i, 1) : r.publishers.push(p); save(); c.classList.toggle('p', i < 0); c.textContent = (i < 0 ? '✓ ' : '') + p; });
+  sh.querySelector('#rs-padd').onclick = () => { const p = sh.querySelector('#rs-p').value.trim(); if (!p) return; if (!r.publishers.includes(p)) r.publishers.push(p); save(); closeSheet(); openRadarSettings(); };
   sh.querySelector('#rs-unhide')?.addEventListener('click', () => { r.hidden = []; save(); closeSheet(); render(); toast('Sorties réaffichées'); });
 }
 function openTagEditor(after) {
@@ -755,7 +845,7 @@ async function runRadarUI(silent) {
   if (radarRunning) return;
   if (!silent && tab !== 'agenda') { calMonth = null; calDay = null; go('agenda'); }
   const res = await scanRadar((i, n, j) => {
-    radarProgress = j ? `📡 Recherche ${i + 1}/${n} : ${j.kind === 'author' ? j.q : 'genre « ' + j.q + ' »'}…` : '';
+    radarProgress = j ? `📡 ${i + 1}/${n} · ${j.src || ''} : ${j.kind === 'genre' ? 'genre « ' + j.q + ' »' : j.q}…` : '';
     const el = document.getElementById('radar-status'); if (el) el.textContent = radarProgress;
   });
   radarProgress = '';
@@ -834,7 +924,7 @@ function viewAgenda() {
     let lastM = '';
     h += `<div class="card">` + list.map(e => { const mk = e.releaseDate.slice(0, 7); const head = !calDay && mk !== lastM ? `<div class="mhead">${new Date(e.releaseDate + 'T00:00:00').toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })}</div>` : ''; lastM = mk; return head + entryRow(e); }).join('') + `</div>`;
   }
-  h += `<p class="muted small" style="text-align:center;margin-top:12px">★ = épinglé sur l’accueil · Les sorties détectées viennent d’Apple Books (ebooks).</p></div>`;
+  h += `<p class="muted small" style="text-align:center;margin-top:12px">★ = épinglé sur l’accueil · Les sorties détectées viennent de la Fnac et d’Apple Books.</p></div>`;
   setTimeout(() => {
     const mv = d => { let [yy, mm] = calMonth; mm += d; if (mm < 0) { mm = 11; yy--; } if (mm > 11) { mm = 0; yy++; } calMonth = [yy, mm]; calDay = null; render(); };
     document.getElementById('cal-prev').onclick = () => mv(-1);
@@ -927,6 +1017,11 @@ function viewHome() {
       <button class="btn accent" onclick="openAdd()" style="margin-top:12px">＋ Ajouter un livre</button>
       <div style="margin-top:14px"><button class="link" onclick="openImport()">⬇ Restaurer une sauvegarde</button></div></div>`;
   }
+  const dues = dueSoon();
+  if (dues.length) {
+    h += `<section class="section"><div class="section-h"><h2>⏰ À ne pas oublier</h2></div><div class="card">` + dues.slice(0, 4).map(x => `<div class="hist" data-open="${x.b.id}">${coverHTML(x.b, '')}<div style="flex:1;min-width:0"><div style="font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(x.b.title)}</div>
+      <div class="small" style="font-weight:650;color:${x.n <= 2 ? 'var(--danger)' : 'var(--muted)'}">${x.kind === 'emprunt' ? '🤝 ' + dueLabel(x.d, 'À rendre') + (x.b.lender ? ' à ' + esc(x.b.lender) : '') : '📨 ' + dueLabel(x.d, 'Chronique')}</div></div></div>`).join('') + `</div></section>`;
+  }
   h += `<section class="section"><div class="section-h"><h2>En cours</h2>${reading.length ? `<button class="link" data-go="library" data-filter="reading">Tout voir</button>` : ''}</div>`;
   if (!reading.length) h += `<div class="card muted small" style="text-align:center;padding:20px">Aucune lecture en cours. Choisis un livre dans ta pile à lire 📖</div>`;
   for (const b of reading.slice(0, 4)) {
@@ -939,7 +1034,7 @@ function viewHome() {
   h += `</section>`;
   const palBooks = toread.filter(b => b.format !== 'audio'), palAudio = toread.filter(b => b.format === 'audio');
   if (palBooks.length) {
-    h += `<section class="section"><div class="section-h"><h2>Ma PAL</h2><button class="link" data-go="library" data-filter="toread" data-fmt="">Tout voir</button></div><div class="hscroll">`;
+    h += `<section class="section"><div class="section-h"><h2>Ma PAL <span class="muted small" style="font-family:var(--font)">${toread.length}</span></h2><div class="row" style="gap:12px"><button class="link" id="home-draw">🎲 Au hasard</button><button class="link" data-go="library" data-filter="toread" data-fmt="">Tout voir</button></div></div>${palChallenge() ? palChallengeCard() : ''}<div class="hscroll">`;
     palBooks.slice(0, 10).forEach((b, i) => h += `<div class="mini" data-open="${b.id}">${coverHTML(b, '')}<div class="t">${i + 1}. ${esc(b.title)}</div></div>`);
     h += `</div></section>`;
   }
@@ -948,7 +1043,7 @@ function viewHome() {
     palAudio.slice(0, 10).forEach((b, i) => h += `<div class="mini" data-open="${b.id}">${coverHTML(b, '')}<div class="t">${i + 1}. ${esc(b.title)}</div>${b.pages ? `<div class="muted small">${fmtMin(b.pages)}</div>` : ''}</div>`);
     h += `</div></section>`;
   }
-  const upc = wish.filter(b => !b.releaseDate || daysUntil(b.releaseDate) >= -7).map(b => ({ kind: 'book', id: b.id, title: b.title, author: b.author, cover: b.cover, cover2: b.cover2, format: b.format, releaseDate: b.releaseDate, tags: b.tags || [], b }))
+  const upc = wish.filter(b => b.releaseDate && daysUntil(b.releaseDate) >= -7).map(b => ({ kind: 'book', id: b.id, title: b.title, author: b.author, cover: b.cover, cover2: b.cover2, format: b.format, releaseDate: b.releaseDate, tags: b.tags || [], b }))
     .concat(radarVisible().filter(isPinned).map(it => ({ kind: 'radar', rk: it.rk, title: it.title, author: it.author, cover: it.cover, releaseDate: it.releaseDate, tags: it.tags || [], it })))
     .sort((a, b) => (a.releaseDate || '9999').localeCompare(b.releaseDate || '9999'));
   const detected = radarVisible().filter(it => !isPinned(it)).length;
@@ -975,7 +1070,8 @@ function viewHome() {
       ${sh.kind === 'challenge' ? `<div class="bar" style="height:5px;margin-top:6px"><i style="width:${p.pct}%"></i></div>` : ''}</div>`; }
     h += `</div></section>`;
   }
-  setTimeout(() => { document.getElementById('home-newshelf')?.addEventListener('click', () => openShelfEditor(null)); bindRadar(document.getElementById('view')); });
+  setTimeout(() => { document.getElementById('home-newshelf')?.addEventListener('click', () => openShelfEditor(null)); bindRadar(document.getElementById('view'));
+    document.getElementById('home-draw')?.addEventListener('click', openDraw); document.getElementById('pc-open')?.addEventListener('click', openPalChallenge); });
   const recent = [...S.logs].sort((a, b) => b.at - a.at).slice(0, 4);
   if (recent.length) {
     h += `<section class="section"><div class="section-h"><h2>Activité récente</h2></div><div class="card">`;
@@ -993,49 +1089,256 @@ function histRow(l, title) {
 
 /* ---------- Bibliothèque ---------- */
 function viewLibrary() {
-  const counts = { reading: 0, toread: 0, wish: 0, read: 0 }; S.books.forEach(b => { if ((!libFmt || (b.format || 'paper') === libFmt) && (!libTag || (b.tags || []).includes(libTag))) counts[b.status]++; });
+  const pass = b => (!libFmt || (b.format || 'paper') === libFmt) && (!libTag || (b.tags || []).includes(libTag));
+  const counts = { reading: 0, toread: 0, wish: 0, read: 0 }; S.books.forEach(b => { if (pass(b)) counts[b.status]++; });
   const q = libQuery.trim().toLowerCase();
   if (libFilter.startsWith('shelf:') && !shelf(libFilter.slice(6))) libFilter = 'toread';
   const curShelf = libFilter.startsWith('shelf:') ? shelf(libFilter.slice(6)) : null;
-  const pass = b => (!libFmt || (b.format || 'paper') === libFmt) && (!libTag || (b.tags || []).includes(libTag));
-  let list = S.books.filter(b => b.status === libFilter && pass(b) && (!q || (b.title + ' ' + (b.author || '')).toLowerCase().includes(q)));
-  if (libFilter === 'toread') list = palList().filter(b => list.includes(b));
-  else if (libFilter === 'wish') list.sort((a, b) => (a.releaseDate || '9999').localeCompare(b.releaseDate || '9999'));
-  else list.sort((a, b) => libFilter === 'read' ? (b.finishedAt || 0) - (a.finishedAt || 0) : (b.lastReadAt || b.addedAt) - (a.lastReadAt || a.addedAt));
+  const curList = libFilter.startsWith('list:') ? LISTS[libFilter.slice(5)] : null;
+  const sortKey = (S.settings.libSort || {})[libFilter] || defaultSort(libFilter);
+  const match = b => !q || (b.title + ' ' + (b.author || '')).toLowerCase().includes(q);
+  let list = curList ? S.books.filter(b => curList.f(b) && pass(b) && match(b)) : S.books.filter(b => b.status === libFilter && pass(b) && match(b));
+  if (libFilter === 'toread' && sortKey === 'order') list = palList().filter(b => list.includes(b));
+  else list = sortBooks(list, sortKey);
   const lbl = { reading: 'En cours', toread: 'PAL', wish: 'Wishlist', read: 'Lus' };
+  const listCount = k => S.books.filter(LISTS[k].f).length;
   let h = `<div class="page-h"><h1>Bibliothèque</h1><span class="chip p">${S.books.length} livre${S.books.length > 1 ? 's' : ''}</span></div>
     <div class="seg">${Object.keys(lbl).map(k => `<button class="${k === libFilter ? 'on' : ''}" onclick="libFilter='${k}';render()">${lbl[k]}<span class="n">${counts[k]}</span></button>`).join('')}</div>
-    <div class="hscroll shelfchips">${S.shelves.map(sh => `<button class="chip ${curShelf === sh ? 'p on' : ''}" onclick="libFilter='shelf:${sh.id}';render()">${sh.emoji} ${esc(sh.name)} <span class="n">${(sh.books || []).length}</span></button>`).join('')}
+    <div class="hscroll shelfchips">${Object.entries(LISTS).map(([k, x]) => `<button class="chip ${libFilter === 'list:' + k ? 'p on' : ''}" onclick="libFilter='list:${k}';render()">${x.e} ${x.l} <span class="n">${listCount(k)}</span></button>`).join('')}
+      <span class="sep"></span>${S.shelves.map(sh => `<button class="chip ${curShelf === sh ? 'p on' : ''}" onclick="libFilter='shelf:${sh.id}';render()">${sh.emoji} ${esc(sh.name)} <span class="n">${(sh.books || []).length}</span></button>`).join('')}
       <button class="chip" id="lib-newshelf">＋ Nouvelle pile</button></div>
-    ${curShelf ? '' : `<div class="hscroll shelfchips filt">${[['', 'Tous formats']].concat(Object.entries(FORMATS).filter(([k]) => S.books.some(b => (b.format || 'paper') === k) || k === 'audio' || k === 'webtoon').map(([k, f]) => [k, f.e + ' ' + (k === 'audio' && libFilter === 'toread' ? 'Playlist audio' : f.l)])).map(([k, l]) => `<button class="chip ${libFmt === k ? 'p on' : ''}" onclick="libFmt='${k}';render()">${l}</button>`).join('')}
+    ${curShelf ? '' : `<div class="hscroll shelfchips filt">${[['', 'Tous formats']].concat(Object.entries(FORMATS).map(([k, f]) => [k, f.e + ' ' + (k === 'audio' && libFilter === 'toread' ? 'Playlist audio' : f.l)])).map(([k, l]) => `<button class="chip ${libFmt === k ? 'p on' : ''}" onclick="libFmt='${k}';render()">${l}</button>`).join('')}
       <span class="sep"></span>${allTags().filter(t => S.books.some(b => (b.tags || []).includes(t.id))).map(t => `<button class="chip ${libTag === t.id ? 'p on' : ''}" onclick="libTag=libTag==='${t.id}'?'':'${t.id}';render()">${t.e} ${esc(t.l)}</button>`).join('')}</div>`}
-    <label class="search"><span class="muted">🔍</span><input id="libq" placeholder="Filtrer par titre ou auteur" value="${esc(libQuery)}"></label>`;
+    <div class="row" style="gap:8px;margin:12px 0"><label class="search" style="flex:1;margin:0"><span class="muted">🔍</span><input id="libq" placeholder="Titre ou auteur" value="${esc(libQuery)}"></label>
+      ${curShelf ? '' : `<label class="sortsel">↕ <select id="libsort">${sortOptions(libFilter).map(k => `<option value="${k}" ${k === sortKey ? 'selected' : ''}>${SORTS[k]}</option>`).join('')}</select></label>`}</div>`;
   setTimeout(() => document.getElementById('lib-newshelf')?.addEventListener('click', () => openShelfEditor(null)));
+  if (libFilter === 'toread' && !curShelf) h += palChallengeCard() + `<div class="row" style="gap:10px;margin-bottom:12px"><button class="btn accent" style="flex:1" id="lib-draw">🎲 Tirer au sort ma prochaine lecture</button></div>`;
   if (curShelf) {
     h += viewShelf(curShelf, q);
   } else if (!list.length) {
-    const msg = { reading: 'Aucune lecture en cours', toread: 'Ta PAL est vide', wish: 'Ta wishlist est vide', read: 'Aucun livre terminé pour l’instant' }[libFilter];
-    h += `<div class="empty"><div class="bubble">${libFilter === 'read' ? '🏆' : '🫧'}</div><h3>${q ? 'Aucun résultat' : msg}</h3>${q ? '' : '<button class="btn accent" onclick="openAdd()" style="margin-top:8px">＋ Ajouter un livre</button>'}</div>`;
-  } else if (libFilter === 'toread') {
-    h += `<p class="muted small" style="margin:0 0 10px">${libFmt === 'audio' ? '🎧 Ta playlist de livres audio' : 'Ta pile à lire'}, dans l’ordre où tu veux les ${libFmt === 'audio' ? 'écouter' : 'lire'}. Utilise ↑ ↓ pour la réorganiser.</p><div class="card">` + list.map((b, i) => `<div class="hist" data-open="${b.id}">
-      <b style="width:22px;text-align:center;color:var(--primary)">${i + 1}</b>${coverHTML(b, '')}
-      <div style="flex:1;min-width:0"><div style="font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(b.title)}</div><div class="muted small">${esc(b.author || '')}${b.format === 'audio' && b.pages ? ' · ' + fmtMin(b.pages) : ''}</div></div>
-      <button class="btn sm" data-mv="-1" data-id="${b.id}" ${i === 0 ? 'disabled style="opacity:.3"' : ''}>↑</button><button class="btn sm" data-mv="1" data-id="${b.id}" ${i === list.length - 1 ? 'disabled style="opacity:.3"' : ''}>↓</button></div>`).join('') + `</div>`;
+    const msg = curList ? { envie: 'Aucune envie pour l’instant', achat: 'Rien à acheter pour l’instant', emprunt: 'Aucun livre emprunté', sp: 'Aucun service presse' }[libFilter.slice(5)]
+      : { reading: 'Aucune lecture en cours', toread: 'Ta PAL est vide', wish: 'Ta wishlist est vide', read: 'Aucun livre terminé pour l’instant' }[libFilter];
+    h += `<div class="empty"><div class="bubble">${curList ? curList.e : libFilter === 'read' ? '🏆' : '🫧'}</div><h3>${q ? 'Aucun résultat' : msg}</h3>
+      ${curList && !q ? `<p class="small">${libFilter === 'list:emprunt' || libFilter === 'list:sp' ? 'Dans la fiche d’un livre, choisis la provenance « Emprunté » ou « Service presse ».' : 'Dans la fiche d’un livre de ta wishlist, choisis « À acheter ».'}</p>` : ''}
+      ${q ? '' : '<button class="btn accent" onclick="openAdd()" style="margin-top:8px">＋ Ajouter un livre</button>'}</div>`;
+  } else if (curList || (libFilter === 'toread' && sortKey === 'order')) {
+    const ordered = !curList;
+    h += (ordered ? `<p class="muted small" style="margin:0 0 10px">${libFmt === 'audio' ? '🎧 Ta playlist de livres audio' : 'Ta pile à lire'}, dans l’ordre où tu veux les ${libFmt === 'audio' ? 'écouter' : 'lire'}. Utilise ↑ ↓ pour la réorganiser.</p>` : '') + `<div class="card">` + list.map((b, i) => `<div class="hist" data-open="${b.id}">
+      ${ordered ? `<b style="width:22px;text-align:center;color:var(--primary)">${i + 1}</b>` : ''}${coverHTML(b, '')}
+      <div style="flex:1;min-width:0"><div style="font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${b.priority === 3 ? '🔥 ' : ''}${esc(b.title)}</div><div class="muted small" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(b.author || '')}${b.format === 'audio' && b.pages ? ' · ' + fmtMin(b.pages) : ''}</div>
+      ${curList ? `<div class="small" style="color:${/⚠️|⏰/.test(acqLine(b)) ? 'var(--danger)' : 'var(--muted)'};font-weight:600">${acqLine(b) || STATUS[b.status]}</div>` : ''}</div>
+      ${ordered ? `<button class="btn sm" data-mv="-1" data-id="${b.id}" ${i === 0 ? 'disabled style="opacity:.3"' : ''}>↑</button><button class="btn sm" data-mv="1" data-id="${b.id}" ${i === list.length - 1 ? 'disabled style="opacity:.3"' : ''}>↓</button>` : `<span class="muted small">${STATUS[b.status].split(' ')[0]}</span>`}</div>`).join('') + `</div>`;
   } else {
-    h += `<div class="grid">` + list.map(b => `<div class="gitem" data-open="${b.id}">${coverHTML(b, '')}
+    const card = b => `<div class="gitem" data-open="${b.id}">${coverHTML(b, '')}${b.priority === 3 ? '<span class="pbadge">🔥</span>' : ''}
       <div class="t">${esc(b.title)}</div><div class="a">${esc(b.author || '')}</div>
       ${b.status === 'reading' ? `<div class="bar"><i style="width:${pct(b)}%"></i></div>` : ''}
       ${b.status === 'read' && b.rating ? `<div class="stars">${'★'.repeat(b.rating)}</div>` : ''}
-      ${b.status === 'wish' ? `<div class="a" style="color:var(--accent);font-weight:650">${daysUntil(b.releaseDate) > 0 ? 'J-' + daysUntil(b.releaseDate) : (b.releaseDate ? 'Disponible' : '💫')}</div>` : ''}</div>`).join('') + `</div>`;
+      ${sortKey === 'length' && b.pages ? `<div class="a">${unitOf(b) === 'min' ? fmtMin(b.pages) : unitOf(b) === 'ch' ? b.pages + ' ch.' : b.pages + ' p.'}</div>` : ''}
+      ${b.status === 'wish' ? `<div class="a" style="color:var(--accent);font-weight:650">${daysUntil(b.releaseDate) > 0 ? 'J-' + daysUntil(b.releaseDate) : (b.releaseDate ? 'Disponible' : b.acq === 'achat' ? '🛒' : '💫')}</div>` : ''}</div>`;
+    if (sortKey === 'genre' || sortKey === 'author') {
+      const groups = new Map();
+      for (const b of list) { const g = sortKey === 'genre' ? ((b.tags || [])[0] ? tagChip(b.tags[0]) : '🏷 Sans genre') : (firstAuthor(b.author) || 'Auteur inconnu'); if (!groups.has(g)) groups.set(g, []); groups.get(g).push(b); }
+      for (const [g, l] of groups) h += `<div class="mhead" style="margin:14px 0 8px">${sortKey === 'genre' ? g : esc(g)} · ${l.length}</div><div class="grid">${l.map(card).join('')}</div>`;
+    } else h += `<div class="grid">` + list.map(card).join('') + `</div>`;
   }
-  if (libFilter === 'wish' && !curShelf) h = h.replace('<div class="grid">', '<button class="btn block" style="margin-bottom:14px" data-go="agenda">📅 Voir le calendrier des sorties</button><div class="grid">');
+  if ((libFilter === 'wish' || libFilter.startsWith('list:envie') || libFilter.startsWith('list:achat')) && !curShelf) h = h.replace('<div class="grid">', '<button class="btn block" style="margin-bottom:14px" data-go="agenda">📅 Voir le calendrier des sorties</button><div class="grid">');
   setTimeout(() => {
     const vis = list.map(b => b.id);
     document.querySelectorAll('[data-mv]').forEach(x => x.onclick = e => { e.stopPropagation(); movePal(x.dataset.id, +x.dataset.mv, vis); });
+    document.getElementById('lib-draw')?.addEventListener('click', openDraw);
+    document.getElementById('pc-new')?.addEventListener('click', openPalChallenge);
+    document.getElementById('pc-open')?.addEventListener('click', openPalChallenge);
+    const so = document.getElementById('libsort'); if (so) so.onchange = () => { S.settings.libSort = Object.assign({}, S.settings.libSort, { [libFilter]: so.value }); save(); render(); };
     const i = document.getElementById('libq'); if (!i) return;
     i.oninput = () => { libQuery = i.value; const pos = i.selectionStart; render(); const n = document.getElementById('libq'); n.focus(); n.setSelectionRange(pos, pos); };
   });
   return h;
+}
+
+/* ---------- Listes (envies, achats futurs, emprunts, SP) & tri ---------- */
+const LISTS = {
+  envie: { e: '💭', l: 'Envies', f: b => b.status === 'wish' && b.acq !== 'achat' },
+  achat: { e: '🛒', l: 'Achats futurs', f: b => b.acq === 'achat' },
+  emprunt: { e: '🤝', l: 'Emprunts', f: b => b.acq === 'emprunt' },
+  sp: { e: '📨', l: 'Services presse', f: b => b.acq === 'sp' }
+};
+const ACQ = { own: '🏠 À moi', achat: '🛒 À acheter', emprunt: '🤝 Emprunté', sp: '📨 Service presse' };
+const PRIO = { 3: '🔥 Haute', 2: '⭐ Moyenne', 1: '💤 Basse' };
+const SORTS = { order: 'Mon ordre', added: 'Ajout récent', prio: 'Priorité', genre: 'Genre', length: 'Longueur', author: 'Auteur', title: 'Titre', release: 'Date de sortie', rating: 'Note', finished: 'Date de lecture' };
+function lengthOf(b) { const u = unitOf(b); return !b.pages ? 0 : u === 'min' ? b.pages / 1.5 : u === 'ch' ? b.pages * 15 : b.pages; } // ≈ pages
+function sortBooks(list, mode) {
+  const by = {
+    added: (a, b) => (b.addedAt || 0) - (a.addedAt || 0),
+    prio: (a, b) => (b.priority || 0) - (a.priority || 0) || (a.palOrder ?? 1e9) - (b.palOrder ?? 1e9),
+    genre: (a, b) => (tagById((a.tags || [])[0])?.l || '~').localeCompare(tagById((b.tags || [])[0])?.l || '~') || a.title.localeCompare(b.title),
+    length: (a, b) => lengthOf(a) - lengthOf(b),
+    author: (a, b) => (firstAuthor(a.author).split(' ').pop() || '~').localeCompare(firstAuthor(b.author).split(' ').pop() || '~') || a.title.localeCompare(b.title),
+    title: (a, b) => a.title.localeCompare(b.title),
+    release: (a, b) => (a.releaseDate || '9999').localeCompare(b.releaseDate || '9999'),
+    rating: (a, b) => (b.rating || 0) - (a.rating || 0),
+    finished: (a, b) => (b.finishedAt || 0) - (a.finishedAt || 0)
+  }[mode];
+  return by ? [...list].sort(by) : list;
+}
+function defaultSort(f) { return f === 'toread' ? 'order' : f === 'wish' || f === 'list:envie' || f === 'list:achat' ? 'release' : f === 'read' ? 'finished' : 'added'; }
+function sortOptions(f) {
+  const base = ['added', 'prio', 'genre', 'length', 'author', 'title'];
+  if (f === 'toread') base.unshift('order');
+  if (f === 'wish' || f.startsWith('list:')) base.unshift('release');
+  if (f === 'read') base.unshift('finished', 'rating');
+  return base;
+}
+function dueLabel(d, verb) {
+  const n = daysUntil(d); if (n === null) return '';
+  return n < 0 ? `⚠️ ${verb} depuis ${-n} j` : n === 0 ? `⏰ ${verb} aujourd’hui` : `${verb} dans ${n} j · ${fmtDate(d + 'T00:00:00', { day: 'numeric', month: 'short' })}`;
+}
+function acqLine(b) {
+  if (b.acq === 'emprunt') return [b.lender ? 'Prêté par ' + esc(b.lender) : 'Emprunté', b.returnDate ? dueLabel(b.returnDate, 'À rendre') : ''].filter(Boolean).join(' · ');
+  if (b.acq === 'sp') return [b.spFrom ? 'SP ' + esc(b.spFrom) : 'Service presse', b.spDeadline ? dueLabel(b.spDeadline, 'Chronique') : ''].filter(Boolean).join(' · ');
+  if (b.acq === 'achat') return [b.price ? esc(b.price) + ' €' : '', b.releaseDate ? releaseLabel(b) : ''].filter(Boolean).join(' · ') || 'À acheter';
+  return '';
+}
+/* Rappels : emprunts à rendre et chroniques SP à rendre bientôt */
+function dueSoon() {
+  return S.books.filter(b => b.status !== 'read' || b.acq === 'emprunt' || (b.acq === 'sp' && !b.spDone)).map(b => {
+    const d = b.acq === 'emprunt' && !b.returned ? b.returnDate : b.acq === 'sp' && !b.spDone ? b.spDeadline : null;
+    return d ? { b, d, n: daysUntil(d), kind: b.acq } : null;
+  }).filter(x => x && x.n <= 14).sort((a, b) => a.n - b.n);
+}
+
+/* ---------- Tirage au sort ---------- */
+function openDraw() {
+  const pal = palList();
+  if (!pal.length) { toast('Ta PAL est vide'); return; }
+  let f = { fmt: '', tag: '', shelf: '', short: false, prio: true };
+  const sh = openSheet('🎲 Tirage au sort', `
+    <p class="muted small" style="margin-top:0">Le hasard choisit ta prochaine lecture parmi ta PAL.</p>
+    <div class="muted small" style="font-weight:650;margin-bottom:6px">Format</div>
+    <div class="chips" id="dr-fmt">${[['', 'Tous']].concat(Object.entries(FORMATS).map(([k, x]) => [k, x.e + ' ' + x.l])).map(([k, l]) => `<button class="chip ${k === '' ? 'p' : ''}" data-v="${k}">${l}</button>`).join('')}</div>
+    <div class="muted small" style="font-weight:650;margin:12px 0 6px">Genre</div>
+    <div class="chips" id="dr-tag">${[['', 'Tous']].concat(allTags().map(t => [t.id, t.e + ' ' + t.l])).map(([k, l]) => `<button class="chip ${k === '' ? 'p' : ''}" data-v="${k}">${esc(l)}</button>`).join('')}</div>
+    ${S.shelves.length ? `<div class="muted small" style="font-weight:650;margin:12px 0 6px">Pile</div><div class="chips" id="dr-shelf">${[['', 'Toute la PAL']].concat(S.shelves.map(x => [x.id, x.emoji + ' ' + x.name])).map(([k, l]) => `<button class="chip ${k === '' ? 'p' : ''}" data-v="${k}">${esc(l)}</button>`).join('')}</div>` : ''}
+    <div class="chips" style="margin-top:12px"><button class="chip" id="dr-short">📏 Livre court (&lt; 350 p.)</button><button class="chip p" id="dr-prio">🔥 Favoriser les priorités</button></div>
+    <div class="draw-stage" id="dr-stage"><div class="muted small">Touche « Tirer » 🎲</div></div>
+    <button class="btn accent block" id="dr-go">🎲 Tirer au sort</button>
+    <div id="dr-after" style="display:none"><button class="btn primary block" style="margin-top:10px" id="dr-start">📖 Je commence celui-là !</button><button class="btn block" style="margin-top:10px" id="dr-see">Voir la fiche</button></div>`);
+  const pick = (id, key) => sh.querySelectorAll(`#${id} [data-v]`).forEach(c => c.onclick = () => { f[key] = c.dataset.v; sh.querySelectorAll(`#${id} [data-v]`).forEach(x => x.classList.toggle('p', x === c)); });
+  pick('dr-fmt', 'fmt'); pick('dr-tag', 'tag'); if (S.shelves.length) pick('dr-shelf', 'shelf');
+  sh.querySelector('#dr-short').onclick = e => { f.short = !f.short; e.target.classList.toggle('p', f.short); };
+  sh.querySelector('#dr-prio').onclick = e => { f.prio = !f.prio; e.target.classList.toggle('p', f.prio); };
+  let chosen = null, timer = null;
+  sh.querySelector('#dr-go').onclick = () => {
+    const pool = palList().filter(b => (!f.fmt || (b.format || 'paper') === f.fmt) && (!f.tag || (b.tags || []).includes(f.tag))
+      && (!f.shelf || (shelf(f.shelf)?.books || []).includes(b.id)) && (!f.short || (lengthOf(b) && lengthOf(b) < 350)));
+    if (!pool.length) { toast('Aucun livre ne correspond à ces critères'); return; }
+    const weighted = pool.flatMap(b => Array(f.prio ? [1, 1, 2, 4][b.priority || 0] : 1).fill(b));
+    chosen = weighted[Math.floor(Math.random() * weighted.length)];
+    const stage = sh.querySelector('#dr-stage'); let n = 0; clearInterval(timer);
+    sh.querySelector('#dr-after').style.display = 'none';
+    timer = setInterval(() => {
+      const b = n++ < 16 ? pool[Math.floor(Math.random() * pool.length)] : chosen;
+      stage.innerHTML = `${coverHTML(b, 'c-lg')}<div class="t">${esc(b.title)}</div>`;
+      stage.classList.toggle('spin2', n < 17);
+      if (n > 16) { clearInterval(timer); stage.classList.add('won'); bubbles(); sh.querySelector('#dr-after').style.display = 'block'; }
+    }, 90 + n * 6);
+  };
+  sh.querySelector('#dr-start').onclick = () => { if (!chosen) return; setStatus(chosen, 'reading'); closeAll(); toast('Bonne lecture ! 📖'); openBook(chosen.id); };
+  sh.querySelector('#dr-see').onclick = () => { if (chosen) openBook(chosen.id); };
+}
+
+/* ---------- Défi : réduire la PAL ---------- */
+function palChallenge() { return S.settings.palChallenge || null; }
+function palChallengeProgress() {
+  const c = palChallenge(); if (!c) return null;
+  const size = palList().length;
+  const readFromPal = S.books.filter(b => b.status === 'read' && b.fromPal && (b.finishedAt || 0) >= c.start).length;
+  const added = S.books.filter(b => (b.palAddedAt || 0) >= c.start).length;
+  let done, target, label;
+  if (c.type === 'size') { target = Math.max(0, c.startSize - c.target); done = Math.max(0, c.startSize - size); label = `PAL : ${size} livre${size > 1 ? 's' : ''} → objectif ${c.target}`; }
+  else { target = c.target; done = readFromPal; label = `${readFromPal} / ${c.target} livres de ta PAL lus`; }
+  const left = c.deadline ? daysUntil(c.deadline) : null;
+  const ratio = c.ratio ? `${added} ajouté${added > 1 ? 's' : ''} · ${readFromPal} lu${readFromPal > 1 ? 's' : ''}${added * c.ratio > readFromPal ? ` · ⚠️ règle 1 acheté = ${c.ratio} lus` : ' · ✓ règle respectée'}` : `${added} ajouté${added > 1 ? 's' : ''} depuis le début du défi`;
+  return { c, size, done, target, pct: target ? Math.min(100, Math.round(done / target * 100)) : 100, label, left, ratio, won: done >= target };
+}
+function palChallengeCard() {
+  const p = palChallengeProgress();
+  if (!p) return `<button class="card radar-hint" id="pc-new" style="margin:0 0 12px"><span style="font-size:20px">🎯</span><span style="flex:1;text-align:left"><b>Défi : réduire ma PAL</b><br><span class="muted small">Fixe-toi un objectif pour faire fondre ta pile</span></span><span class="muted">›</span></button>`;
+  return `<div class="card pc-card" id="pc-open" style="margin-bottom:12px"><div class="row"><span style="font-size:22px">${p.won ? '🏆' : '🎯'}</span><div style="flex:1;min-width:0"><div style="font-weight:700">${esc(p.c.name || 'Défi PAL')}</div>
+    <div class="muted small">${p.label}${p.left !== null ? ` · ${p.left >= 0 ? 'encore ' + p.left + ' j' : 'terminé'}` : ''}</div></div><b>${p.pct}%</b></div>
+    <div class="bar"><i style="width:${p.pct}%"></i></div><div class="muted small" style="margin-top:6px">${p.ratio}</div></div>`;
+}
+function openPalChallenge() {
+  const c = palChallenge() || { type: 'read', target: 10, deadline: '', ratio: 0, name: '' };
+  let type = c.type;
+  const size = palList().length;
+  const sh = openSheet('🎯 Défi PAL', `
+    <p class="muted small" style="margin-top:0">Ta PAL compte actuellement <b>${size} livre${size > 1 ? 's' : ''}</b>.</p>
+    <div class="pills" style="margin-top:0"><button data-t="read" class="${type === 'read' ? 'on' : ''}">📖 Lire X livres de ma PAL</button><button data-t="size" class="${type === 'size' ? 'on' : ''}">📉 Descendre à X livres</button></div>
+    <div class="field"><label>Nom du défi</label><input id="pc-name" maxlength="40" placeholder="Ex. Opération PAL fondue" value="${esc(c.name || '')}"></div>
+    <div class="two"><div class="field"><label id="pc-tl">${type === 'size' ? 'PAL visée (livres)' : 'Livres à lire'}</label><input id="pc-target" type="number" inputmode="numeric" min="0" value="${type === 'size' ? (palChallenge()?.target ?? Math.max(0, size - 10)) : c.target}"></div>
+    <div class="field"><label>Avant le</label><input id="pc-deadline" type="date" value="${esc(c.deadline || '')}"></div></div>
+    <div class="field"><label>Règle d’achat (facultatif)</label><div class="chips" id="pc-ratio">${[[0, 'Aucune'], [1, '1 acheté = 1 lu'], [2, '1 acheté = 2 lus'], [3, '1 acheté = 3 lus']].map(([v, l]) => `<button class="chip ${+(c.ratio || 0) === v ? 'p' : ''}" data-r="${v}">${l}</button>`).join('')}</div></div>
+    <button class="btn primary block" id="pc-save">${palChallenge() ? 'Enregistrer' : 'Lancer le défi 🚀'}</button>
+    ${palChallenge() ? '<button class="btn danger block" style="margin-top:10px" id="pc-stop">Arrêter le défi</button>' : ''}`);
+  let ratio = +(c.ratio || 0);
+  sh.querySelectorAll('[data-t]').forEach(b => b.onclick = () => { type = b.dataset.t; sh.querySelectorAll('[data-t]').forEach(x => x.classList.toggle('on', x === b)); sh.querySelector('#pc-tl').textContent = type === 'size' ? 'PAL visée (livres)' : 'Livres à lire'; sh.querySelector('#pc-target').value = type === 'size' ? Math.max(0, size - 10) : 10; });
+  sh.querySelectorAll('[data-r]').forEach(b => b.onclick = () => { ratio = +b.dataset.r; sh.querySelectorAll('[data-r]').forEach(x => x.classList.toggle('p', x === b)); });
+  sh.querySelector('#pc-save').onclick = () => {
+    const prev = palChallenge();
+    S.settings.palChallenge = { type, target: Math.max(0, +sh.querySelector('#pc-target').value || 0), deadline: sh.querySelector('#pc-deadline').value, ratio, name: sh.querySelector('#pc-name').value.trim(),
+      start: prev && prev.type === type ? prev.start : Date.now(), startSize: prev && prev.type === type ? prev.startSize : size };
+    save(); closeSheet(); render(); toast('Défi enregistré 🎯');
+  };
+  sh.querySelector('#pc-stop')?.addEventListener('click', () => { delete S.settings.palChallenge; save(); closeSheet(); render(); toast('Défi arrêté'); });
+}
+function recordPalSize() {
+  S.palHist = S.palHist || {};
+  const k = dayKey(), n = S.books.filter(b => b.status === 'toread').length;
+  if (S.palHist[k] !== n) { S.palHist[k] = n; const keys = Object.keys(S.palHist).sort(); keys.slice(0, Math.max(0, keys.length - 400)).forEach(x => delete S.palHist[x]); }
+}
+
+/* ---------- Citations ---------- */
+function openQuote(bookId, qid) {
+  const b = book(bookId); if (!b) return;
+  b.quotes = b.quotes || [];
+  const q = qid ? b.quotes.find(x => x.id === qid) : { text: '', page: '' };
+  const sh = openSheet(qid ? 'Modifier la citation' : '💬 Nouvelle citation', `
+    <p class="muted small" style="margin-top:0">${esc(b.title)}</p>
+    <div class="field"><label>Citation</label><textarea id="q-text" rows="5" placeholder="« … »">${esc(q.text)}</textarea></div>
+    <div class="two"><div class="field"><label>${unitOf(b) === 'min' ? 'Moment (ex. 3h20)' : unitOf(b) === 'ch' ? 'Chapitre' : 'Page'}</label><input id="q-page" value="${esc(q.page || '')}" inputmode="${unitOf(b) === 'min' ? 'text' : 'numeric'}"></div>
+    <div class="field"><label>Personnage (facultatif)</label><input id="q-who" value="${esc(q.who || '')}"></div></div>
+    <button class="btn primary block" id="q-save">Enregistrer</button>
+    ${qid ? '<button class="btn danger block" style="margin-top:10px" id="q-del">Supprimer</button>' : ''}`);
+  sh.querySelector('#q-save').onclick = () => {
+    const text = sh.querySelector('#q-text').value.trim(); if (!text) { toast('Écris la citation'); return; }
+    const data = { text, page: sh.querySelector('#q-page').value.trim(), who: sh.querySelector('#q-who').value.trim() };
+    if (qid) Object.assign(q, data); else b.quotes.unshift(Object.assign({ id: uid(), at: Date.now() }, data));
+    save(); closeSheet(); closeSheet(); setTimeout(() => openBook(bookId), 120); toast('Citation enregistrée 💬');
+  };
+  sh.querySelector('#q-del')?.addEventListener('click', () => { b.quotes = b.quotes.filter(x => x.id !== qid); save(); closeSheet(); closeSheet(); setTimeout(() => openBook(bookId), 120); });
+  setTimeout(() => sh.querySelector('#q-text').focus(), 300);
+}
+function quoteCard(b, q, withTitle) {
+  return `<div class="quote" data-q="${q.id}" data-qb="${b.id}"><div class="qt">« ${esc(q.text)} »</div>
+    <div class="qm">${[q.who && '— ' + esc(q.who), withTitle && esc(b.title), q.page && (unitOf(b) === 'min' ? '⏱ ' : unitOf(b) === 'ch' ? 'ch. ' : 'p. ') + esc(q.page)].filter(Boolean).join(' · ')}</div>
+    <button class="qcopy" data-qc="${q.id}" data-qb="${b.id}" aria-label="Copier">⧉</button></div>`;
+}
+function bindQuotes(root) {
+  root.querySelectorAll('[data-q]').forEach(x => x.onclick = () => openQuote(x.dataset.qb, x.dataset.q));
+  root.querySelectorAll('[data-qc]').forEach(x => x.onclick = async ev => {
+    ev.stopPropagation();
+    const b = book(x.dataset.qb), q = (b.quotes || []).find(y => y.id === x.dataset.qc); if (!q) return;
+    const txt = `« ${q.text} »${q.who ? ' — ' + q.who : ''}\n${b.title}${b.author ? ', ' + b.author : ''}${q.page ? ' (p. ' + q.page + ')' : ''}`;
+    const nat = NATIVE(); let ok = false;
+    if (nat && nat.copyText) ok = !/^erreur/.test(nat.copyText(txt)); else { try { await navigator.clipboard.writeText(txt); ok = true; } catch (e) { } }
+    toast(ok ? 'Citation copiée ✓' : 'Copie impossible');
+  });
+}
+function openAllQuotes() {
+  const all = S.books.flatMap(b => (b.quotes || []).map(q => ({ b, q }))).sort((a, b) => (b.q.at || 0) - (a.q.at || 0));
+  const sh = openSheet('💬 Mes citations', all.length ? `<p class="muted small" style="margin-top:0">${all.length} citation${all.length > 1 ? 's' : ''}</p>` + all.map(x => quoteCard(x.b, x.q, true)).join('')
+    : '<div class="empty" style="padding:24px"><div class="bubble">💬</div><h3>Aucune citation</h3>Ajoute-en depuis la fiche d’un livre.</div>');
+  bindQuotes(sh);
 }
 
 /* ---------- Statistiques ---------- */
@@ -1122,8 +1425,19 @@ function viewStats() {
   if (read.length) {
     const fr = Object.entries(FORMATS).map(([k, f]) => ({ l: f.e + ' ' + f.l, v: read.filter(b => (b.format || 'paper') === k).length })).filter(r => r.v);
     h += `<div class="card chart-card"><h3>Par format</h3><div class="muted small">${per[statsPeriod]} · livres terminés</div><div style="margin-top:12px">${hbars(fr)}</div></div>`;
-    const gr = allTags().map(t => ({ l: t.e + ' ' + esc(t.l), v: read.filter(b => (b.tags || []).includes(t.id)).length })).filter(r => r.v).sort((a, b) => b.v - a.v);
-    if (gr.length) h += `<div class="card chart-card"><h3>Par genre</h3><div class="muted small">${per[statsPeriod]} · livres terminés</div><div style="margin-top:12px">${hbars(gr)}</div></div>`;
+    const gstat = allTags().map(t => {
+      const rb = read.filter(b => (b.tags || []).includes(t.id));
+      const ids = new Set(S.books.filter(b => (b.tags || []).includes(t.id)).map(b => b.id));
+      const pg = logs.filter(l => ids.has(l.bookId) && (l.unit || 'p') === 'p').reduce((a, l) => a + (l.pages || 0), 0);
+      const rated = rb.filter(b => b.rating);
+      return { t, n: rb.length, pages: pg, avg: rated.length ? rated.reduce((a, b) => a + b.rating, 0) / rated.length : 0, pal: S.books.filter(b => b.status === 'toread' && (b.tags || []).includes(t.id)).length };
+    }).filter(g => g.n || g.pages || g.pal).sort((a, b) => b.n - a.n || b.pages - a.pages);
+    if (gstat.length) {
+      const fav = gstat.filter(g => g.avg).sort((a, b) => b.avg - a.avg)[0];
+      h += `<div class="card chart-card"><h3>Par genre</h3><div class="muted small">${per[statsPeriod]}${fav ? ` · genre préféré : ${fav.t.e} ${esc(fav.t.l)} (${fav.avg.toFixed(1).replace('.', ',')} ★)` : ''}</div>
+        <div style="margin-top:12px">${hbars(gstat.map(g => ({ l: g.t.e + ' ' + esc(g.t.l), v: g.n, t: g.n })))}</div>
+        <table class="gtab"><tr><th>Genre</th><th>Lus</th><th>Pages</th><th>Note</th><th>PAL</th></tr>${gstat.map(g => `<tr><td>${g.t.e} ${esc(g.t.l)}</td><td>${g.n}</td><td>${g.pages.toLocaleString('fr-FR')}</td><td>${g.avg ? g.avg.toFixed(1).replace('.', ',') + '★' : '—'}</td><td>${g.pal}</td></tr>`).join('')}</table></div>`;
+    }
     const rated = read.filter(b => b.rating);
     if (rated.length) {
       const avg = rated.reduce((a, b) => a + b.rating, 0) / rated.length;
@@ -1134,6 +1448,18 @@ function viewStats() {
     const authors = {}; read.forEach(b => { const a = firstAuthor(b.author); if (a) authors[a] = (authors[a] || 0) + 1; });
     const ta = Object.entries(authors).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([l, v]) => ({ l: esc(l), v }));
     if (ta.length) h += `<div class="card chart-card"><h3>Auteurs les plus lus</h3><div style="margin-top:12px">${hbars(ta)}</div></div>`;
+  }
+  // Évolution de la PAL
+  const ph = S.palHist || {};
+  const pd = []; for (let i = 89; i >= 0; i -= 1) { const d = new Date(); d.setDate(d.getDate() - i); pd.push(dayKey(d)); }
+  let lastV = null; const pv2 = pd.map(k => { if (ph[k] !== undefined) lastV = ph[k]; return lastV; });
+  if (pv2.filter(v => v !== null).length > 1) {
+    const vals = pv2.map(v => v ?? pv2.find(x => x !== null)), mx = Math.max(...vals, 1), mn = Math.min(...vals), W = 340, H = 120;
+    const pts = vals.map((v, i) => `${(i / (vals.length - 1) * W).toFixed(1)},${(H - 20 - (v - mn) / Math.max(1, mx - mn) * (H - 40)).toFixed(1)}`).join(' ');
+    const diff = vals[vals.length - 1] - vals.find(v => v !== null);
+    h += `<div class="card chart-card"><h3>📉 Évolution de ma PAL</h3><div class="muted small">3 derniers mois · ${diff < 0 ? `${-diff} livre${-diff > 1 ? 's' : ''} en moins 🎉` : diff > 0 ? `+${diff} livre${diff > 1 ? 's' : ''}` : 'stable'}</div>
+      <svg viewBox="0 0 ${W} ${H}" width="100%" style="margin-top:10px"><polyline points="${pts}" fill="none" stroke="var(--primary)" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>
+      <text x="0" y="${H - 4}" font-size="10">il y a 3 mois</text><text x="${W}" y="${H - 4}" font-size="10" text-anchor="end">auj. · ${vals[vals.length - 1]}</text></svg></div>`;
   }
   // Rythmes
   const sp = logs.filter(l => l.type === 'session' && l.seconds > 60 && (l.unit || 'p') === 'p');
@@ -1164,6 +1490,8 @@ function viewMe() {
     <div class="two"><div class="field" style="margin:0"><label>Objectif quotidien (pages)</label><input id="set-goal" type="number" inputmode="numeric" min="1" max="1000" value="${S.settings.dailyGoal}"></div>
     <div class="field" style="margin:0"><label>Défi ${new Date().getFullYear()} (livres)</label><input id="set-year" type="number" inputmode="numeric" min="0" max="1000" placeholder="ex. 40" value="${S.settings.yearGoal || ''}"></div></div>
   </div>
+  <div class="section"><div class="section-h"><h2>Mes carnets</h2></div>
+    <div class="row" style="gap:10px"><button class="btn" style="flex:1" onclick="openAllQuotes()">💬 Mes citations (${S.books.reduce((a, b) => a + (b.quotes || []).length, 0)})</button><button class="btn" style="flex:1" onclick="openPalChallenge()">🎯 Défi PAL</button></div></div>
   <div class="section"><div class="section-h"><h2>Sources de recherche</h2></div>
     <div class="card"><div class="row"><div style="flex:1"><b>🛒 Fnac</b> <span class="chip a" style="padding:2px 8px;font-size:11px">Essai</span><div class="muted small">Éditions françaises précises, dates de sortie et collectors. Peut parfois être bloquée par le site.</div></div>
       <button class="btn sm ${S.settings.fnacOff ? '' : 'primary'}" onclick="S.settings.fnacOff=!S.settings.fnacOff;save();render()">${S.settings.fnacOff ? 'Activer' : 'Activée'}</button></div>
@@ -1178,7 +1506,7 @@ function viewMe() {
       <p class="muted small" style="margin-top:0">Tout est enregistré sur ton téléphone. Une sauvegarde automatique est aussi gardée dans <b>Téléchargements/LaBulleDeKiria</b>${S.settings.lastAutoBackup ? ' (dernière : ' + fmtDate(S.settings.lastAutoBackup, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) + ')' : ''}.</p>
       <div class="row" style="gap:10px"><button class="btn primary" style="flex:1" onclick="exportData()">💾 Sauvegarder</button><button class="btn" style="flex:1" onclick="openImport()">⬇ Restaurer</button></div>
     </div></div>
-  <div class="section" style="text-align:center"><div class="muted small">La Bulle de Kiria · v2.2<br>Données livres : BnF, Fnac, Google Books, Apple Books & Open Library</div></div>`;
+  <div class="section" style="text-align:center"><div class="muted small">La Bulle de Kiria · v2.3<br>Données livres : BnF, Fnac, Google Books, Apple Books & Open Library</div></div>`;
 }
 document.addEventListener('change', e => {
   if (e.target.id === 'set-name') { S.settings.name = e.target.value.trim() || 'Kiria'; save(); toast('Prénom enregistré'); }
@@ -1186,7 +1514,7 @@ document.addEventListener('change', e => {
   if (e.target.id === 'set-goal') { S.settings.dailyGoal = Math.max(1, +e.target.value || 20); save(); toast('Objectif mis à jour'); }
 });
 function backupJSON() {
-  return JSON.stringify({ app: 'la-bulle-de-kiria', version: 2, exportedAt: new Date().toISOString(), books: S.books, logs: S.logs, shelves: S.shelves, radar: { pinned: radarState().pinned, hidden: radarState().hidden, authors: radarState().authors, removedAuthors: radarState().removedAuthors }, settings: S.settings });
+  return JSON.stringify({ app: 'la-bulle-de-kiria', version: 2, exportedAt: new Date().toISOString(), books: S.books, logs: S.logs, shelves: S.shelves, palHist: S.palHist || {}, radar: { pinned: radarState().pinned, hidden: radarState().hidden, authors: radarState().authors, removedAuthors: radarState().removedAuthors, publishers: radarState().publishers || [] }, settings: S.settings });
 }
 const NATIVE = () => window.KiriaAndroid || null;
 function exportData() {
@@ -1237,7 +1565,7 @@ function scheduleAutoBackup() {
 function applyBackup(text) {
   const d = JSON.parse(text);
   if (!Array.isArray(d.books)) throw new Error('format');
-  S.books = d.books; S.logs = d.logs || []; S.shelves = d.shelves || []; S.radar = Object.assign({ items: [] }, d.radar || {}); S.settings = Object.assign({}, DEFAULT.settings, d.settings || {}); save();
+  S.books = d.books; S.logs = d.logs || []; S.shelves = d.shelves || []; S.palHist = d.palHist || {}; S.radar = Object.assign({ items: [] }, d.radar || {}); S.settings = Object.assign({}, DEFAULT.settings, d.settings || {}); save();
   return S.books.length;
 }
 function openImport() {
@@ -1369,11 +1697,14 @@ function previewResult(data, target) {
       ${data.isbn ? `<div class="muted small" style="margin-top:4px">ISBN ${esc(data.isbn)}</div>` : ''}</div></div>
     <div class="chips">${meta}</div>
     <div id="pv-desc">${data.description ? `<div class="section"><div class="section-h"><h2>Résumé</h2></div><div class="desc open">${esc(data.description.replace(/<[^>]+>/g, ''))}</div></div>` : `<p class="muted small" style="margin-top:16px">${data.cover ? 'Pas de résumé pour cette édition.' : '⏳ Recherche de la couverture et du résumé…'}</p>`}</div>
+    ${target ? '' : `<div class="muted small" style="font-weight:650;margin:18px 0 6px">Format</div>
+    <div class="chips" id="pv-fmt">${Object.entries(FORMATS).map(([k, f]) => `<button class="chip ${k === (data.format || 'paper') ? 'p' : ''}" data-f="${k}">${f.e} ${f.l}</button>`).join('')}</div>`}
     <div style="margin-top:20px"><button class="btn accent block" id="pv-go">${target ? '✓ Utiliser cette édition' : '＋ Ajouter ce livre'}</button>
     <a class="btn block" style="margin-top:10px;text-decoration:none" id="pv-fnac" href="#">🛒 Voir sur la Fnac</a>
     <button class="btn block" style="margin-top:10px" id="pv-back">← Retour aux résultats</button></div>`);
   sh.querySelector('.sh').style.padding = '0 18px';
   sh.querySelector('#pv-back').onclick = closeSheet;
+  sh.querySelectorAll('#pv-fmt [data-f]').forEach(c => c.onclick = () => { if (unitOf({ format: c.dataset.f }) !== unitOf(data)) data.pages = 0; data.format = c.dataset.f; sh.querySelectorAll('#pv-fmt [data-f]').forEach(x => x.classList.toggle('p', x === c)); sh.querySelector('#pv-cv').innerHTML = coverHTML(data, 'c-lg'); });
   const fnacFirst = data.source === 'Fnac' && data.link ? fnacProduct(data.link).then(f => {
     for (const k of ['publisher', 'pages', 'isbn', 'description', 'releaseDate', 'year']) if (f[k] && !data[k]) data[k] = f[k];
     if (f.cover) { if (data.cover && data.cover !== f.cover) data.cover2 = data.cover; data.cover = f.cover; }
@@ -1694,19 +2025,27 @@ function chooseStatus(data, done) {
   const sh = openSheet('Où le ranger ?', `<p class="muted" style="margin-top:0">${esc(data.title)}</p>
     <div class="muted small" style="font-weight:650;margin-bottom:6px">Format</div>
     <div class="chips" style="margin-bottom:12px">${Object.entries(FORMATS).map(([k, f]) => `<button class="chip ${k === fmt ? 'p' : ''}" data-f="${k}">${f.e} ${f.l}</button>`).join('')}</div>
+    <div class="muted small" style="font-weight:650;margin-bottom:6px">Provenance</div>
+    <div class="chips" style="margin-bottom:12px">${[['own', '🏠 À moi'], ['emprunt', '🤝 Emprunté'], ['sp', '📨 Service presse']].map(([k, l]) => `<button class="chip ${k === 'own' ? 'p' : ''}" data-acq="${k}">${l}</button>`).join('')}</div>
     <div class="muted small" style="font-weight:650;margin-bottom:6px">Genres <span style="font-weight:400">(devinés automatiquement, touche pour corriger)</span></div>
     <div class="chips" style="margin-bottom:16px">${allTags().map(t => `<button class="chip ${tags.has(t.id) ? 'p' : ''}" data-tg="${t.id}">${t.e} ${esc(t.l)}</button>`).join('')}</div>
     ${future ? `<button class="btn block accent" data-s="wish" style="margin-bottom:10px">💫 Wishlist — sort le ${fmtDate(data.releaseDate + 'T00:00:00', { day: 'numeric', month: 'long' })}</button>` : ''}
     <button class="btn block primary" data-s="reading" style="margin-bottom:10px">📖 Je le lis en ce moment</button>
     <button class="btn block" data-s="toread" style="margin-bottom:10px">🫧 Dans ma PAL (je l’ai, à lire)</button>
-    <button class="btn block" data-s="wish" style="margin-bottom:10px">💫 Wishlist (envie / à paraître)</button>
+    <button class="btn block" data-s="wish" style="margin-bottom:10px">💭 Envie (wishlist)</button>
+    <button class="btn block" data-s="buy" style="margin-bottom:10px">🛒 Achat futur (à acheter)</button>
     <button class="btn block" data-s="read">🏁 Déjà lu</button>`);
   sh.querySelectorAll('[data-f]').forEach(c => c.onclick = () => { fmt = c.dataset.f; sh.querySelectorAll('[data-f]').forEach(x => x.classList.toggle('p', x === c)); });
   sh.querySelectorAll('[data-tg]').forEach(c => c.onclick = () => { const id = c.dataset.tg; tags.has(id) ? tags.delete(id) : tags.add(id); c.classList.toggle('p', tags.has(id)); });
+  let acq = 'own';
+  sh.querySelectorAll('[data-acq]').forEach(c => c.onclick = () => { acq = c.dataset.acq; sh.querySelectorAll('[data-acq]').forEach(x => x.classList.toggle('p', x === c)); });
   sh.querySelectorAll('[data-s]').forEach(b => b.onclick = () => {
-    const d = Object.assign({}, data, { format: fmt, tags: [...tags] });
+    let st = b.dataset.s;
+    const d = Object.assign({}, data, { format: fmt, tags: [...tags], acq: st === 'buy' ? 'achat' : st === 'wish' ? 'envie' : acq });
+    if (st === 'buy') st = 'wish';
     if (unitOf(d) !== unitOf({ format: data.format || 'paper' })) d.pages = 0;
-    addBook(d, b.dataset.s); closeSheet(); done && done();
+    const nb = addBook(d, st); closeSheet(); done && done();
+    if (d.acq === 'emprunt' || d.acq === 'sp') setTimeout(() => { openBook(nb.id); toast(d.acq === 'sp' ? 'Ajoute la date de chronique 📨' : 'Ajoute qui te l’a prêté 🤝'); }, 250);
   });
 }
 function addBook(data, status) {
@@ -1714,7 +2053,7 @@ function addBook(data, status) {
   const now = Date.now();
   const b = Object.assign({ id: uid(), title: '', author: '', pages: 0, cover: '', currentPage: 0, rating: 0, notes: '', format: 'paper' }, data,
     { status, addedAt: now, startedAt: (status === 'reading' || status === 'read') ? now : null, finishedAt: status === 'read' ? now : null });
-  if (status === 'toread') b.palOrder = palNext();
+  if (status === 'toread') { b.palOrder = palNext(); b.palAddedAt = now; }
   if (status === 'wish' && !b.releaseDate && b.year && +b.year > new Date().getFullYear()) b.releaseDate = b.year + '-01-01';
   if (status === 'read') b.currentPage = b.pages;
   if (!b.tags) b.tags = classify(b);
@@ -1722,7 +2061,7 @@ function addBook(data, status) {
   S.books.push(b);
   if (toShelf && shelf(toShelf)) shelf(toShelf).books.push(b.id);
   save(); render();
-  toast({ reading: 'Bonne lecture ! 📖', read: 'Ajouté à tes lectures ✓', toread: 'Ajouté à ta PAL 🫧', wish: 'Ajouté à ta wishlist 💫' }[status]);
+  toast(b.acq === 'achat' ? 'Ajouté aux achats futurs 🛒' : { reading: 'Bonne lecture ! 📖', read: 'Ajouté à tes lectures ✓', toread: 'Ajouté à ta PAL 🫧', wish: 'Ajouté à tes envies 💭' }[status]);
   return b;
 }
 
@@ -1878,8 +2217,21 @@ function openBook(id) {
     <div class="pills">${[['wish', '💫 Wish'], ['toread', '🫧 PAL'], ['reading', '📖 En cours'], ['read', '🏁 Lu']].map(([k, l]) => `<button data-st="${k}" class="${b.status === k ? 'on' : ''}">${l}</button>`).join('')}</div>
     ${main}
     ${b.description ? `<div class="section"><div class="section-h"><h2>Résumé</h2></div><div class="desc" id="d-desc">${esc(b.description.replace(/<[^>]+>/g, ''))}</div><button class="link" id="d-more" style="margin-top:6px">Lire plus</button></div>` : ''}
+    <div class="section"><div class="section-h"><h2>💬 Citations</h2><button class="link" id="d-addq">＋ Ajouter</button></div>
+      ${(b.quotes || []).length ? (b.quotes || []).map(q => quoteCard(b, q)).join('') : '<div class="muted small">Garde ici tes passages préférés.</div>'}</div>
     <div class="section"><div class="section-h"><h2>Mes notes</h2></div><div class="field" style="margin:0"><textarea id="d-notes" rows="3" placeholder="Citations, impressions, personnages…">${esc(b.notes || '')}</textarea></div></div>
     ${logs.length ? `<div class="section"><div class="section-h"><h2>Historique</h2><span class="muted small">${logs.length} entrée${logs.length > 1 ? 's' : ''}</span></div><div class="card">${logs.slice(0, 30).map(l => histRow(l)).join('')}</div></div>` : ''}
+    <div class="section"><div class="section-h"><h2>Priorité</h2></div>
+      <div class="chips" id="d-prio">${[[0, '— Aucune']].concat(Object.entries(PRIO).reverse()).map(([k, l]) => `<button class="chip ${+(b.priority || 0) === +k ? 'p' : ''}" data-pr="${k}">${l}</button>`).join('')}</div></div>
+    <div class="section"><div class="section-h"><h2>Provenance</h2></div>
+      <div class="chips" id="d-acq">${Object.entries(ACQ).filter(([k]) => k !== 'achat' || b.status === 'wish').map(([k, l]) => `<button class="chip ${(b.acq || (b.status === 'wish' ? '' : 'own')) === k ? 'p' : ''}" data-aq="${k}">${l}</button>`).join('')}</div>
+      ${b.acq === 'emprunt' ? `<div class="two" style="margin-top:10px"><div class="field"><label>Prêté par</label><input id="d-lender" value="${esc(b.lender || '')}" placeholder="Ex. Léa, médiathèque…"></div>
+        <div class="field"><label>À rendre le</label><input id="d-return" type="date" value="${esc(b.returnDate || '')}"></div></div>
+        <button class="chip ${b.returned ? 'p' : ''}" id="d-returned">${b.returned ? '✓ Rendu' : 'Marquer comme rendu'}</button>` : ''}
+      ${b.acq === 'sp' ? `<div class="two" style="margin-top:10px"><div class="field"><label>Maison d’édition / plateforme</label><input id="d-spfrom" value="${esc(b.spFrom || '')}" placeholder="Ex. Hlab, NetGalley…"></div>
+        <div class="field"><label>Chronique avant le</label><input id="d-spdl" type="date" value="${esc(b.spDeadline || '')}"></div></div>
+        <button class="chip ${b.spDone ? 'p' : ''}" id="d-spdone">${b.spDone ? '✓ Chronique publiée' : 'Marquer la chronique comme faite'}</button>` : ''}
+      ${b.acq === 'achat' ? `<div class="field" style="margin-top:10px"><label>Prix (facultatif)</label><input id="d-price" inputmode="decimal" value="${esc(b.price || '')}" placeholder="Ex. 21,90"></div>` : ''}</div>
     <div class="section"><div class="section-h"><h2>Genres</h2></div>
       <div class="chips" id="d-tags">${allTags().map(t => `<button class="chip ${(b.tags || []).includes(t.id) ? 'p' : ''}" data-tg="${t.id}">${t.e} ${esc(t.l)}</button>`).join('')}</div></div>
     <div class="section"><div class="section-h"><h2>Mes piles</h2></div>
@@ -1900,6 +2252,15 @@ function openBook(id) {
   sh.querySelector('#d-more')?.addEventListener('click', e => { sh.querySelector('#d-desc').classList.toggle('open'); e.target.textContent = sh.querySelector('#d-desc').classList.contains('open') ? 'Réduire' : 'Lire plus'; });
   sh.querySelector('#d-notes').onchange = e => { b.notes = e.target.value; save(); toast('Note enregistrée'); };
   sh.querySelector('#d-edit').onclick = () => openEdit(id);
+  bindQuotes(sh);
+  sh.querySelector('#d-addq').onclick = () => openQuote(id);
+  const reopen = () => { closeSheet(); setTimeout(() => openBook(id), 120); };
+  sh.querySelectorAll('#d-prio [data-pr]').forEach(c => c.onclick = () => { b.priority = +c.dataset.pr; save(); render(); sh.querySelectorAll('#d-prio [data-pr]').forEach(x => x.classList.toggle('p', x === c)); });
+  sh.querySelectorAll('#d-acq [data-aq]').forEach(c => c.onclick = () => { b.acq = c.dataset.aq; save(); render(); reopen(); });
+  const bindF = (sel, key) => sh.querySelector(sel)?.addEventListener('change', e => { b[key] = e.target.value.trim(); save(); render(); });
+  bindF('#d-lender', 'lender'); bindF('#d-return', 'returnDate'); bindF('#d-spfrom', 'spFrom'); bindF('#d-spdl', 'spDeadline'); bindF('#d-price', 'price');
+  sh.querySelector('#d-returned')?.addEventListener('click', () => { b.returned = !b.returned; save(); render(); reopen(); });
+  sh.querySelector('#d-spdone')?.addEventListener('click', () => { b.spDone = !b.spDone; save(); render(); reopen(); });
   sh.querySelectorAll('#d-tags [data-tg]').forEach(c => c.onclick = () => { b.tags = b.tags || []; const t = c.dataset.tg, i = b.tags.indexOf(t); i >= 0 ? b.tags.splice(i, 1) : b.tags.push(t); c.classList.toggle('p', i < 0); save(); render(); });
   sh.querySelector('#d-edition').onclick = () => openAdd(id);
   sh.querySelectorAll('[data-shelf]').forEach(c => c.onclick = () => {
@@ -1917,6 +2278,8 @@ function openBook(id) {
 }
 function setStatus(b, st) {
   if (b.status === st) return;
+  if (b.status === 'toread' && (st === 'reading' || st === 'read')) b.fromPal = true;
+  if (st === 'toread') { b.palAddedAt = Date.now(); if (b.acq === 'achat') b.acq = 'own'; }
   b.status = st;
   if (st === 'reading' && !b.startedAt) b.startedAt = Date.now();
   if (st === 'read') { finishBook(b, true); return; }
@@ -1937,7 +2300,7 @@ function logProgress(b, newPage, seconds, type) {
   if (b.pages) newPage = Math.min(newPage, b.pages);
   const delta = Math.max(0, newPage - (b.currentPage || 0));
   b.currentPage = newPage; b.lastReadAt = Date.now();
-  if (b.status === 'toread' || b.status === 'wish') { b.status = 'reading'; b.startedAt ||= Date.now(); }
+  if (b.status === 'toread' || b.status === 'wish') { if (b.status === 'toread') b.fromPal = true; b.status = 'reading'; b.startedAt ||= Date.now(); }
   const u = unitOf(b);
   if (delta || seconds) S.logs.push({ id: uid(), bookId: b.id, type, date: dayKey(), at: Date.now(), pages: delta, seconds: Math.round(seconds || 0), unit: u });
   save();
