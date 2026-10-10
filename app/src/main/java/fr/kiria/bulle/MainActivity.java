@@ -311,7 +311,7 @@ public class MainActivity extends Activity {
                     try {
                         URL u = new URL(at[0]);
                         String host = u.getHost();
-                        if (!(host.endsWith("bnf.fr") || host.endsWith("googleapis.com") || host.endsWith("openlibrary.org"))) {
+                        if (!(host.endsWith("bnf.fr") || host.endsWith("googleapis.com") || host.endsWith("openlibrary.org") || host.equals("itunes.apple.com"))) {
                             throw new SecurityException("hôte non autorisé");
                         }
                         c = (HttpURLConnection) u.openConnection();
