@@ -27,6 +27,14 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.webkit.WebChromeClient;
+import android.webkit.CookieManager;
+import android.os.Handler;
+import android.os.Looper;
+import android.widget.Button;
+import android.widget.LinearLayout;
+import android.widget.TextView;
+import android.view.Gravity;
+import android.view.ViewGroup;
 import android.webkit.ValueCallback;
 import android.widget.FrameLayout;
 
@@ -48,6 +56,13 @@ public class MainActivity extends Activity {
 
     private static final String START_URL = "https://appassets.androidplatform.net/assets/index.html";
     private WebView webView;
+    private FrameLayout rootLayout;
+    /* Navigateur invisible pour lire la Fnac (passe mieux les protections anti-robots qu'une requête simple) */
+    private WebView fnacView;
+    private String fnacId = null;
+    private boolean fnacDelivered = true;
+    private LinearLayout fnacOverlay;
+    private final Handler ui = new Handler(Looper.getMainLooper());
     private ValueCallback<Uri[]> fileCallback;
     private static final int PICK_IMAGE = 42;
     private String userAgent = "Mozilla/5.0 (Linux; Android) LaBulleDeKiria";
@@ -62,6 +77,7 @@ public class MainActivity extends Activity {
         int bg = night ? Color.parseColor("#14101E") : Color.parseColor("#FBF7FF");
 
         FrameLayout root = new FrameLayout(this);
+        rootLayout = root;
         root.setBackgroundColor(bg);
         webView = new WebView(this);
         webView.setBackgroundColor(bg);
@@ -206,6 +222,88 @@ public class MainActivity extends Activity {
         }
     }
 
+    // ---------- Fnac ----------
+    private static boolean isFnac(String url) {
+        try { String h = Uri.parse(url).getHost(); return h != null && (h.equals("fnac.com") || h.endsWith(".fnac.com")); } catch (Exception e) { return false; }
+    }
+
+    @SuppressLint("SetJavaScriptEnabled")
+    private void ensureFnacView() {
+        if (fnacView != null) return;
+        fnacView = new WebView(this);
+        WebSettings fs = fnacView.getSettings();
+        fs.setJavaScriptEnabled(true);
+        fs.setDomStorageEnabled(true);
+        fs.setLoadsImagesAutomatically(false);
+        CookieManager.getInstance().setAcceptCookie(true);
+        CookieManager.getInstance().setAcceptThirdPartyCookies(fnacView, true);
+        fnacView.setWebViewClient(new WebViewClient() {
+            @Override
+            public void onPageFinished(WebView view, String url) {
+                final String id = fnacId;
+                if (id == null || fnacDelivered) return;
+                // laisser le temps aux scripts de la page (et à la vérification anti-robot)
+                ui.postDelayed(() -> deliverFnac(id, 0), 1800);
+            }
+        });
+        // le WebView doit être attaché pour exécuter correctement les scripts : on le met minuscule et invisible
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(2, 2);
+        fnacView.setAlpha(0f);
+        rootLayout.addView(fnacView, 0, lp);
+    }
+
+    private void deliverFnac(final String id, final int tries) {
+        if (fnacView == null || !id.equals(fnacId) || fnacDelivered) return;
+        fnacView.evaluateJavascript("(function(){return document.documentElement ? document.documentElement.outerHTML : ''})()", value -> {
+            if (!id.equals(fnacId) || fnacDelivered) return;
+            String v = value == null ? "\"\"" : value;
+            // page encore vide ou en cours de vérification : on réessaie un peu
+            if (v.length() < 3000 && tries < 4) { ui.postDelayed(() -> deliverFnac(id, tries + 1), 1500); return; }
+            fnacDelivered = true;
+            webView.evaluateJavascript("window.__kiriaHttp(" + JSONObject.quote(id) + ",200," + v + ",'')", null);
+        });
+    }
+
+    private void showFnacOverlay(String url) {
+        ensureFnacView();
+        if (fnacOverlay != null) return;
+        rootLayout.removeView(fnacView);
+        fnacView.setAlpha(1f);
+        fnacView.getSettings().setLoadsImagesAutomatically(true);
+        fnacOverlay = new LinearLayout(this);
+        fnacOverlay.setOrientation(LinearLayout.VERTICAL);
+        fnacOverlay.setBackgroundColor(Color.WHITE);
+        LinearLayout bar = new LinearLayout(this);
+        bar.setGravity(Gravity.CENTER_VERTICAL);
+        bar.setPadding(24, 12, 12, 12);
+        bar.setBackgroundColor(Color.parseColor("#8B5CF6"));
+        TextView t = new TextView(this);
+        t.setText("Fnac – valide la vérification puis appuie sur Terminé");
+        t.setTextColor(Color.WHITE);
+        bar.addView(t, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        Button done = new Button(this);
+        done.setText("Terminé");
+        done.setOnClickListener(v -> closeFnacOverlay());
+        bar.addView(done);
+        fnacOverlay.addView(bar, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        fnacOverlay.addView(fnacView, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+        rootLayout.addView(fnacOverlay, new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+        fnacId = null; fnacDelivered = true;
+        fnacView.loadUrl(url);
+    }
+
+    private void closeFnacOverlay() {
+        if (fnacOverlay == null) return;
+        CookieManager.getInstance().flush();
+        fnacOverlay.removeView(fnacView);
+        rootLayout.removeView(fnacOverlay);
+        fnacOverlay = null;
+        fnacView.setAlpha(0f);
+        fnacView.getSettings().setLoadsImagesAutomatically(false);
+        rootLayout.addView(fnacView, 0, new FrameLayout.LayoutParams(2, 2));
+        webView.evaluateJavascript("window.__fnacClosed && window.__fnacClosed()", null);
+    }
+
     @Override
     protected void onSaveInstanceState(Bundle outState) {
         super.onSaveInstanceState(outState);
@@ -215,6 +313,7 @@ public class MainActivity extends Activity {
     @SuppressWarnings("deprecation")
     @Override
     public void onBackPressed() {
+        if (fnacOverlay != null) { closeFnacOverlay(); return; }
         webView.evaluateJavascript("window.kiriaBack ? window.kiriaBack() : false", value -> {
             if (!"true".equals(value)) MainActivity.super.onBackPressed();
         });
@@ -228,6 +327,25 @@ public class MainActivity extends Activity {
 
     /** Petites fonctions natives accessibles depuis la page (window.KiriaAndroid). */
     public class Bridge {
+        /** Charge une page Fnac dans le navigateur invisible et renvoie son HTML à __kiriaHttp(id, …). */
+        @JavascriptInterface
+        public void fnacGet(final String id, final String url) {
+            if (!isFnac(url)) { ui.post(() -> webView.evaluateJavascript("window.__kiriaHttp(" + JSONObject.quote(id) + ",0,null,'hôte non autorisé')", null)); return; }
+            ui.post(() -> {
+                ensureFnacView();
+                if (fnacOverlay != null) { webView.evaluateJavascript("window.__kiriaHttp(" + JSONObject.quote(id) + ",0,null,'vérification en cours')", null); return; }
+                fnacId = id; fnacDelivered = false;
+                fnacView.stopLoading();
+                fnacView.loadUrl(url);
+            });
+        }
+
+        /** Affiche la Fnac en plein écran (pour valider une vérification anti-robot). */
+        @JavascriptInterface
+        public void fnacShow(final String url) {
+            if (!isFnac(url)) return;
+            ui.post(() -> showFnacOverlay(url));
+        }
         /** Ancienne méthode : partage en texte (gardée pour compatibilité). */
         @JavascriptInterface
         public void share(String subject, String text) {
@@ -311,7 +429,7 @@ public class MainActivity extends Activity {
                     try {
                         URL u = new URL(at[0]);
                         String host = u.getHost();
-                        if (!(host.endsWith("bnf.fr") || host.endsWith("googleapis.com") || host.endsWith("openlibrary.org") || host.equals("itunes.apple.com"))) {
+                        if (!(host.endsWith("bnf.fr") || host.endsWith("googleapis.com") || host.endsWith("openlibrary.org") || host.equals("itunes.apple.com") || host.endsWith("fnac-static.com"))) {
                             throw new SecurityException("hôte non autorisé");
                         }
                         c = (HttpURLConnection) u.openConnection();

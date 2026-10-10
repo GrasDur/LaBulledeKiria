@@ -1164,6 +1164,10 @@ function viewMe() {
     <div class="two"><div class="field" style="margin:0"><label>Objectif quotidien (pages)</label><input id="set-goal" type="number" inputmode="numeric" min="1" max="1000" value="${S.settings.dailyGoal}"></div>
     <div class="field" style="margin:0"><label>Défi ${new Date().getFullYear()} (livres)</label><input id="set-year" type="number" inputmode="numeric" min="0" max="1000" placeholder="ex. 40" value="${S.settings.yearGoal || ''}"></div></div>
   </div>
+  <div class="section"><div class="section-h"><h2>Sources de recherche</h2></div>
+    <div class="card"><div class="row"><div style="flex:1"><b>🛒 Fnac</b> <span class="chip a" style="padding:2px 8px;font-size:11px">Essai</span><div class="muted small">Éditions françaises précises, dates de sortie et collectors. Peut parfois être bloquée par le site.</div></div>
+      <button class="btn sm ${S.settings.fnacOff ? '' : 'primary'}" onclick="S.settings.fnacOff=!S.settings.fnacOff;save();render()">${S.settings.fnacOff ? 'Activer' : 'Activée'}</button></div>
+      <button class="btn block" style="margin-top:10px" onclick="fnacUnlock('')">🔓 Ouvrir la Fnac (débloquer)</button></div></div>
   <div class="section"><div class="section-h"><h2>Radar des sorties</h2></div>
     <div class="card">
       <div class="muted small" style="margin-bottom:10px">Genres suivis : ${allTags().filter(t => (S.settings.interests || []).includes(t.id)).map(t => t.e + ' ' + esc(t.l)).join(', ') || 'aucun'}</div>
@@ -1174,7 +1178,7 @@ function viewMe() {
       <p class="muted small" style="margin-top:0">Tout est enregistré sur ton téléphone. Une sauvegarde automatique est aussi gardée dans <b>Téléchargements/LaBulleDeKiria</b>${S.settings.lastAutoBackup ? ' (dernière : ' + fmtDate(S.settings.lastAutoBackup, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) + ')' : ''}.</p>
       <div class="row" style="gap:10px"><button class="btn primary" style="flex:1" onclick="exportData()">💾 Sauvegarder</button><button class="btn" style="flex:1" onclick="openImport()">⬇ Restaurer</button></div>
     </div></div>
-  <div class="section" style="text-align:center"><div class="muted small">La Bulle de Kiria · v2.1<br>Données livres : BnF, Google Books, Apple Books & Open Library</div></div>`;
+  <div class="section" style="text-align:center"><div class="muted small">La Bulle de Kiria · v2.2<br>Données livres : BnF, Fnac, Google Books, Apple Books & Open Library</div></div>`;
 }
 document.addEventListener('change', e => {
   if (e.target.id === 'set-name') { S.settings.name = e.target.value.trim() || 'Kiria'; save(); toast('Prénom enregistré'); }
@@ -1326,10 +1330,11 @@ function openAdd(replaceId) {
     {
       res.innerHTML = srcBar() + items.map((b, i) => `<div class="result" data-i="${i}">${coverHTML(b, 'c-sm')}<div class="info"><div class="title" style="font-size:15px">${esc(b.title)}</div>
         <div class="author">${esc(b.author || 'Auteur inconnu')}</div>
-        <div class="muted small">${[b.langSure || b.lang !== 'fr' ? langBadge(b.lang) : '🇫🇷 FR ?', b.publisher && esc(b.publisher.slice(0, 24)), b.year, b.pages ? b.pages + ' p.' : '', b.source === 'BnF' ? '📚 BnF' : '', b.source === 'Apple Books' ? '🍎 Apple' : '', b.format === 'audio' ? '🎧 Audio' : ''].filter(Boolean).join(' · ')}</div>
+        <div class="muted small">${[b.langSure || b.lang !== 'fr' ? langBadge(b.lang) : '🇫🇷 FR ?', b.publisher && esc(b.publisher.slice(0, 24)), b.year, b.pages ? b.pages + ' p.' : '', b.source === 'BnF' ? '📚 BnF' : '', b.source === 'Apple Books' ? '🍎 Apple' : '', b.source === 'Fnac' ? '🛒 Fnac' + (b.edition ? ' · ' + esc(b.edition) : '') : b.fnac ? '🛒' : '', b.format === 'audio' ? '🎧 Audio' : ''].filter(Boolean).join(' · ')}</div>
         ${b.releaseDate ? `<div class="small" style="color:var(--accent);font-weight:700;margin-top:2px">📅 Sortie le ${fmtDate(b.releaseDate + 'T00:00:00', { day: 'numeric', month: 'long', year: 'numeric' })}</div>` : ''}</div>
         <span class="muted" style="font-size:22px;padding:0 6px">›</span></div>`).join('');
       res.querySelector('#src-retry')?.addEventListener('click', run);
+      res.querySelector('#src-fnac')?.addEventListener('click', () => fnacUnlock(q.value.trim(), run));
       res.querySelectorAll('.result').forEach(r => r.onclick = () => previewResult(items[r.dataset.i], target));
     }
   }
@@ -1351,7 +1356,7 @@ async function searchAudio(term, signal, frOnly) {
 }
 function srcBar() {
   const bad = /✗/.test(searchInfo.bnf || '');
-  return `<div class="muted small" style="display:flex;align-items:center;gap:8px;margin:-2px 0 10px">${esc(searchInfo.sources || '')}${bad ? '<button class="chip p" id="src-retry">↻ Réessayer la BnF</button>' : ''}</div>`;
+  return `<div class="muted small" style="display:flex;align-items:center;gap:8px;margin:-2px 0 10px;flex-wrap:wrap">${esc(searchInfo.sources || '')}${bad ? '<button class="chip p" id="src-retry">↻ Réessayer la BnF</button>' : ''}${fnacState === '🔒' ? '<button class="chip a" id="src-fnac">🔓 Débloquer la Fnac</button>' : ''}</div>`;
 }
 const LANGS = { fr: '🇫🇷 FR', en: '🇬🇧 EN', es: '🇪🇸 ES', de: '🇩🇪 DE', it: '🇮🇹 IT', pt: '🇵🇹 PT', ja: '🇯🇵 JA', nl: '🇳🇱 NL' };
 function langBadge(l) { return l ? (LANGS[l] || l.toUpperCase()) : ''; }
@@ -1365,10 +1370,22 @@ function previewResult(data, target) {
     <div class="chips">${meta}</div>
     <div id="pv-desc">${data.description ? `<div class="section"><div class="section-h"><h2>Résumé</h2></div><div class="desc open">${esc(data.description.replace(/<[^>]+>/g, ''))}</div></div>` : `<p class="muted small" style="margin-top:16px">${data.cover ? 'Pas de résumé pour cette édition.' : '⏳ Recherche de la couverture et du résumé…'}</p>`}</div>
     <div style="margin-top:20px"><button class="btn accent block" id="pv-go">${target ? '✓ Utiliser cette édition' : '＋ Ajouter ce livre'}</button>
+    <a class="btn block" style="margin-top:10px;text-decoration:none" id="pv-fnac" href="#">🛒 Voir sur la Fnac</a>
     <button class="btn block" style="margin-top:10px" id="pv-back">← Retour aux résultats</button></div>`);
   sh.querySelector('.sh').style.padding = '0 18px';
   sh.querySelector('#pv-back').onclick = closeSheet;
-  if (!data.description || !data.cover || data.source === 'BnF') enrichBook(data).then(f => {
+  const fnacFirst = data.source === 'Fnac' && data.link ? fnacProduct(data.link).then(f => {
+    for (const k of ['publisher', 'pages', 'isbn', 'description', 'releaseDate', 'year']) if (f[k] && !data[k]) data[k] = f[k];
+    if (f.cover) { if (data.cover && data.cover !== f.cover) data.cover2 = data.cover; data.cover = f.cover; }
+    if (f.isbn && isbnLang(f.isbn)) { data.lang = isbnLang(f.isbn); data.langSure = true; }
+    if (f.translator) data.translator = f.translator;
+    if (f.collection) data.collection = f.collection;
+    if (!sh.isConnected) return;
+    sh.querySelector('#pv-cv').innerHTML = coverHTML(data, 'c-lg');
+    const ch = [data.edition && '🛒 ' + esc(data.edition), data.publisher && '🏢 ' + esc(data.publisher), data.pages && `📄 ${data.pages} pages`, data.isbn && 'EAN ' + esc(data.isbn), data.releaseDate && `📅 Sort le ${fmtDate(data.releaseDate + 'T00:00:00', { day: 'numeric', month: 'long', year: 'numeric' })}`].filter(Boolean);
+    const box = sh.querySelector('.chips'); if (box) box.innerHTML = ch.map(c => `<span class="chip">${c}</span>`).join('') + (data.lang ? `<span class="chip">${langBadge(data.lang)}</span>` : '');
+  }).catch(() => {}) : Promise.resolve();
+  fnacFirst.then(() => (!data.description || !data.cover || data.source === 'BnF') ? enrichBook(data) : {}).then(f => {
     if (f.cover && (!data.cover || data.source === 'BnF')) { if (data.cover && data.cover !== f.cover) data.cover2 = data.cover; data.cover = f.cover; sh.querySelector('#pv-cv').innerHTML = coverHTML(data, 'c-lg'); }
     if (f.description && !data.description) data.description = f.description;
     if (f.pages && !data.pages) data.pages = f.pages;
@@ -1376,6 +1393,7 @@ function previewResult(data, target) {
     sh.querySelector('#pv-desc').innerHTML = data.description ? `<div class="section"><div class="section-h"><h2>Résumé</h2></div><div class="desc open">${esc(data.description.replace(/<[^>]+>/g, ''))}</div></div>`
       : '<p class="muted small" style="margin-top:16px">Pas de résumé trouvé. Tu pourras l’ajouter avec « Modifier la fiche ».</p>';
   }).catch(() => {});
+  const fl = sh.querySelector('#pv-fnac'); if (fl) fl.href = data.link || FNAC_SEARCH(data.title + ' ' + firstAuthor(data.author));
   sh.querySelector('#pv-go').onclick = () => {
     if (target) {
       const keep = { id: target.id, status: target.status, currentPage: target.currentPage, rating: target.rating, notes: target.notes, addedAt: target.addedAt, startedAt: target.startedAt, finishedAt: target.finishedAt, lastReadAt: target.lastReadAt, palOrder: target.palOrder, releaseDate: target.releaseDate };
@@ -1450,6 +1468,139 @@ async function appleSearch(term, signal) {
 }
 const normKey = s => (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\(.*?\)|tome\s*\d+|t\.\s*\d+/g, '').replace(/[^a-z0-9]/g, '');
 
+/* ---------- Fnac (lecture des pages publiques, à titre d'essai) ---------- */
+const FNAC_SEARCH = q => 'https://www.fnac.com/SearchResult/ResultList.aspx?Search=' + encodeURIComponent(q);
+function fnacHtml(url, signal) {
+  const nat = NATIVE();
+  if (nat && typeof nat.fnacGet === 'function') return new Promise((res, rej) => {
+    const id = uid(); pendingHttp[id] = { res, rej };
+    signal && signal.addEventListener('abort', () => { if (pendingHttp[id]) { delete pendingHttp[id]; rej(new DOMException('Annulé', 'AbortError')); } });
+    setTimeout(() => { if (pendingHttp[id]) { delete pendingHttp[id]; rej(new Error('délai dépassé')); } }, 30000);
+    nat.fnacGet(id, url);
+  });
+  return fetch(url, { signal }).then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); });
+}
+/* HTML → texte avec des retours à la ligne entre les blocs */
+function htmlText(html) {
+  const t = document.createElement('textarea');
+  t.innerHTML = String(html || '').replace(/<(script|style|noscript|svg)[\s\S]*?<\/\1>/gi, ' ')
+    .replace(/<br\s*\/?>|<\/(p|div|li|dt|dd|tr|td|th|h\d|ul|ol|section|article|header|footer|span|a|strong|b|label|button)>/gi, '\n')
+    .replace(/<[^>]+>/g, ' ');
+  return t.value.replace(/[ \t ]+/g, ' ').replace(/ *\n */g, '\n').replace(/\n{2,}/g, '\n').trim();
+}
+const FNAC_BLOCK = /captcha-delivery|geo\.captcha|datadome|Please enable JS and disable any ad blocker|Accès refusé|Access denied/i;
+const FR_MONTHS = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
+function fnacDate(txt) {
+  let m = txt.match(/(\d{2})\/(\d{2})\/(\d{4})/);
+  if (m) return `${m[3]}-${m[2]}-${m[1]}`;
+  m = txt.match(/(\d{1,2})(?:er)? (janvier|février|fevrier|mars|avril|mai|juin|juillet|août|aout|septembre|octobre|novembre|décembre|decembre) (\d{4})/i);
+  if (m) { const mo = FR_MONTHS.findIndex(x => nrm(x).trim() === nrm(m[2]).trim()) + 1; return `${m[3]}-${String(mo).padStart(2, '0')}-${String(m[1]).padStart(2, '0')}`; }
+  return '';
+}
+const FNAC_FOREIGN = /(édition|edition|version) (anglaise|allemande|espagnole|italienne|portugaise|américaine|en anglais)|en anglais|english edition|\blibri\b|penguin random house usa|grand central|hodder|bloomsbury|orion publishing|penguin verlag|rizzoli|faeris|tor books|harpercollins|simon & schuster|st\. martin/i;
+function fnacLang(txt, isbn) {
+  const il = isbnLang(isbn); if (il) return { lang: il, sure: true };
+  if (/allemande|penguin verlag|tochter|königin/i.test(txt)) return { lang: 'de', sure: true };
+  if (/espagnole|faeris|saga alquimia/i.test(txt)) return { lang: 'es', sure: true };
+  if (/italienne|rizzoli/i.test(txt)) return { lang: 'it', sure: true };
+  if (FNAC_FOREIGN.test(txt)) return { lang: 'en', sure: true };
+  if (/\(Traduction\)|trad\.|traduit/i.test(txt)) return { lang: 'fr', sure: true };
+  const g = guessFrench(txt); return { lang: g || 'fr', sure: g === 'fr' };
+}
+function fnacFormat(txt) {
+  const m = txt.match(/livre audio|audio cd|ebook|epub|e-book|broché|relié|poche|cartonné|collector|coffret|grand format|manga|bande dessinée|album/i);
+  if (!m) return { fmt: 'paper', label: '' };
+  const k = m[0].toLowerCase();
+  return { fmt: /audio/.test(k) ? 'audio' : /ebook|epub|e-book/.test(k) ? 'ebook' : 'paper', label: m[0][0].toUpperCase() + m[0].slice(1).toLowerCase() };
+}
+function fnacImg(el) {
+  for (const img of el.querySelectorAll('img, source')) {
+    const c = [img.getAttribute('data-src'), img.getAttribute('data-lazy'), img.getAttribute('data-original'), (img.getAttribute('data-srcset') || img.getAttribute('srcset') || '').split(/[ ,]/)[0], img.getAttribute('src')];
+    const u = c.find(x => x && /fnac-static\.com\/multimedia/.test(x));
+    if (u) return u.startsWith('//') ? 'https:' + u : u;
+  }
+  return '';
+}
+function parseFnacSearch(html) {
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  const idOf = a => ((a.getAttribute('href') || '').match(/fnac\.com\/a(\d{5,})(?:\/|$)|^\/a(\d{5,})\//) || []).slice(1).find(Boolean);
+  const groups = new Map();
+  for (const a of doc.querySelectorAll('a[href]')) { const id = idOf(a); if (id) { if (!groups.has(id)) groups.set(id, []); groups.get(id).push(a); } }
+  const out = [];
+  for (const [id, links] of groups) {
+    // remonte jusqu'au « bloc produit » : le plus grand parent qui ne contient que ce produit
+    let card = links[0];
+    while (card.parentElement && card.parentElement !== doc.body) {
+      const ids = new Set([...card.parentElement.querySelectorAll('a[href]')].map(idOf).filter(Boolean));
+      if (ids.size > 1) break;
+      card = card.parentElement;
+    }
+    const txt = htmlText(card.innerHTML);
+    if (/\b(CD|Vinyle|DVD|Blu-ray|Jeu vidéo|Figurine|Goodies|Mug|Peluche|Funko)\b/.test(txt) && !/livre|roman|tome/i.test(txt)) continue;
+    const titles = links.map(a => (a.getAttribute('title') || a.textContent || '').replace(/\s+/g, ' ').trim())
+      .filter(t => t.length > 1 && !/^(voir|neuf|occasion|ajouter|\d|€|en stock|résumé|lire)/i.test(t) && !/€/.test(t));
+    let title = titles.sort((x, y) => y.length - x.length)[0] || '';
+    if (!title) continue;
+    title = title.replace(/\s*-\s*(broché|relié|poche|ebook|epub|livre audio|grand format|cartonné).*$/i, '').trim();
+    const authors = [...txt.matchAll(/([^\n(),]{2,50}?)\s*\((?:Auteur|Autrice|Scénario|Scenario|Dessin|Auteur du texte)\)/g)].map(m => m[1].trim()).filter(a => !/^(et|de|par)$/i.test(a));
+    const isbn = ((txt.match(/\b(97[89]\d{10})\b/) || [])[1]) || '';
+    const { fmt, label } = fnacFormat(txt);
+    const { lang, sure } = fnacLang(title + '\n' + txt, isbn);
+    const date = fnacDate(txt);
+    const cov = fnacImg(card);
+    if (!authors.length && !date) continue; // liens de menu, promos…
+    if (!authors.length && !cov) continue;
+    const href = links[0].getAttribute('href');
+    out.push({ key: 'f' + id, title, author: [...new Set(authors)].join(', '), pages: +((txt.match(/(\d{2,4})\s*pages/i) || [])[1] || 0),
+      cover: cov, year: date.slice(0, 4), releaseDate: date > dayKey() ? date : '', publisher: '', isbn, description: '', genre: '',
+      lang, langSure: sure, format: fmt, edition: label, source: 'Fnac', link: href.startsWith('http') ? href : 'https://www.fnac.com' + href,
+      collector: /collector/i.test(title + ' ' + txt) });
+    if (out.length >= 24) break;
+  }
+  return out;
+}
+let fnacState = '';
+async function fnacSearch(term, signal) {
+  fnacState = '…';
+  try {
+    const html = await fnacHtml(FNAC_SEARCH(term), signal);
+    const items = parseFnacSearch(html);
+    if (!items.length && FNAC_BLOCK.test(html)) { fnacState = '🔒'; const e = new Error('vérification'); e.code = 'captcha'; throw e; }
+    fnacState = '✓ ' + items.length;
+    return items;
+  } catch (e) { if (e.name !== 'AbortError' && fnacState === '…') fnacState = '✗'; throw e; }
+}
+/* Page produit : éditeur, date, pages, EAN, résumé, grande couverture */
+async function fnacProduct(url) {
+  const html = await fnacHtml(url);
+  if (FNAC_BLOCK.test(html) && html.length < 20000) throw new Error('vérification');
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  const txt = htmlText(doc.body ? doc.body.innerHTML : html);
+  const field = re => { const m = txt.match(re); return m ? m[1].trim() : ''; };
+  const og = n => doc.querySelector(`meta[property="${n}"],meta[name="${n}"]`)?.getAttribute('content') || '';
+  let desc = field(/\n(?:Résumé|Resume|Présentation de l'éditeur|Description)\n([\s\S]{40,2500}?)(?:\n(?:Lire la suite|Voir plus|Caractéristiques|Fiche technique|Biographie|Avis)|$)/i);
+  desc = desc.replace(/\n/g, ' ').replace(/\s{2,}/g, ' ').trim();
+  const isbn = field(/\nEAN\n?\s*(97[89]\d{10})/) || field(/\bEAN\s*:?\s*(97[89]\d{10})/) || field(/\nISBN\n?\s*([\dXx-]{10,17})/);
+  const date = fnacDate(field(/Date de parution\n?\s*([^\n]{6,30})/i) || field(/Parution\n?\s*([^\n]{6,30})/i));
+  const imgs = [og('og:image')].concat([...html.matchAll(/https?:\/\/static\.fnac-static\.com\/multimedia\/[^"' )\\]+?\.(?:jpg|jpeg|png|webp)/gi)].map(m => m[0]));
+  const cover = imgs.find(u => u && /\/(PE|Images)\//.test(u) && !/logo|picto|icon/i.test(u)) || imgs.find(Boolean) || '';
+  return {
+    publisher: field(/\n(?:Editeur|Éditeur|Editions?)\n?\s*([^\n]{2,60})/i),
+    releaseDate: date > dayKey() ? date : '', year: date.slice(0, 4),
+    pages: +field(/Nombre de pages\n?\s*(\d{2,4})/i) || 0,
+    isbn: isbn.replace(/-/g, ''), description: desc, cover,
+    collection: field(/\nCollection\n?\s*([^\n]{2,60})/i),
+    translator: field(/\n([^\n(]{3,50})\s*\(Traduction\)/)
+  };
+}
+window.__fnacClosed = () => { fnacState = ''; if (typeof window.__onFnacClosed === 'function') window.__onFnacClosed(); };
+function fnacUnlock(term, after) {
+  const nat = NATIVE();
+  window.__onFnacClosed = after;
+  if (nat && nat.fnacShow) nat.fnacShow(FNAC_SEARCH(term || 'livre'));
+  else window.open(FNAC_SEARCH(term || 'livre'), '_blank');
+}
+
 async function searchBooks(term, signal, frOnly, onPartial) {
   const rawIsbn = term.replace(/[-\s]/g, '');
   const isIsbn = /^(\d{9}[\dXx]|\d{13})$/.test(rawIsbn);
@@ -1461,18 +1612,20 @@ async function searchBooks(term, signal, frOnly, onPartial) {
   const gget = u => soft(fetch(u, { signal }).then(r => r.json()).then(d => (d.items || []).map(gbMap)));
   searchInfo.bnf = '…';
   let bnfDone = false;
-  const bnfP = soft(bnfSearch(term, isIsbn, signal)).then(r => { bnfDone = true; return r; });
+  const bnfP = soft(bnfSearch(term, isIsbn, signal));
+  const fnacP = S.settings.fnacOff ? Promise.resolve(null) : soft(fnacSearch(isIsbn ? rawIsbn : term, signal));
+  const lateP = Promise.all([bnfP, fnacP]).then(r => { bnfDone = true; return r; });
   const [gfr, gall, olr, apl] = await Promise.all([
     gget(gbase + '&langRestrict=fr'), gget(gbase),
     soft(fetch(ol, { signal }).then(r => r.json()).then(d => (d.docs || []).map(olMap))),
     isIsbn ? Promise.resolve([]) : soft(appleSearch(term, signal))]);
   // On affiche tout de suite Google + Open Library + Apple, la BnF (plus lente) complète ensuite
-  if (!bnfDone && onPartial && (gfr || gall || olr || apl)) onPartial(merge(null));
-  const bn = await bnfP;
-  if (!gfr && !gall && !olr && !bn && !apl) throw new Error('offline');
-  return merge(bn);
+  if (!bnfDone && onPartial && (gfr || gall || olr || apl)) onPartial(merge(null, null));
+  const [bn, fn] = await lateP;
+  if (!gfr && !gall && !olr && !bn && !apl && !fn) throw new Error('offline');
+  return merge(bn, fn);
 
-  function merge(bn) {
+  function merge(bn, fn) {
 
   // Fusion : une seule fiche par ISBN, en gardant le meilleur de chaque source
   const byKey = new Map();
@@ -1508,14 +1661,29 @@ async function searchBooks(term, signal, frOnly, onPartial) {
     }
     byKey.set(a.key, a);
   }
+  // Fnac : éditions françaises précises (broché, collector, poche…)
+  for (const f0 of (fn || [])) {
+    const f = { ...f0 };
+    const prevIsbn = f.isbn && byKey.get(f.isbn);
+    if (prevIsbn) { if (!prevIsbn.cover || prevIsbn.source !== 'Google') prevIsbn.cover = f.cover || prevIsbn.cover; prevIsbn.link = f.link; prevIsbn.edition = f.edition; if (f.releaseDate) prevIsbn.releaseDate = f.releaseDate; prevIsbn.fnac = true; continue; }
+    const k = normKey(f.title) + '|' + normKey(firstAuthor(f.author)).slice(0, 8);
+    if (f.lang === 'fr') for (const [bk, b] of byKey) {
+      if (b.source === 'Fnac' || b.lang !== 'fr' || normKey(b.title) + '|' + normKey(firstAuthor(b.author)).slice(0, 8) !== k) continue;
+      for (const fl of ['isbn', 'pages', 'publisher', 'description', 'genre']) if (!f[fl] && b[fl]) f[fl] = b[fl];
+      if (!f.cover) f.cover = b.cover;
+      if (!f.collector) byKey.delete(bk);
+      break;
+    }
+    byKey.set(f.key, f);
+  }
   let out = [...byKey.values()];
   if (frOnly) out = out.filter(b => b.lang === 'fr');
   const norm = s => (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
   const words = norm(term).split(/[\s'’-]+/).filter(w => w.length > 2);
   const hit = b => words.filter(w => norm(b.title + ' ' + b.author).includes(w.replace(/s$/, ''))).length / (words.length || 1);
-  out = out.map((b, i) => ({ b, s: (b.lang === 'fr' ? (b.langSure ? 100 : 50) : 0) + hit(b) * 70 + (b.cover ? 10 : 0) + (b.pages ? 4 : 0) + (b.source === 'BnF' ? 4 : 0) + (b.releaseDate ? 6 : 0) + (b.description ? 3 : 0) + (+b.year > 2000 ? 3 : 0) - i * .05 }))
+  out = out.map((b, i) => ({ b, s: (b.lang === 'fr' ? (b.langSure ? 100 : 50) : 0) + hit(b) * 70 + (b.cover ? 10 : 0) + (b.pages ? 4 : 0) + (b.source === 'BnF' ? 4 : 0) + (b.source === 'Fnac' && b.langSure ? 8 : 0) + (b.releaseDate ? 6 : 0) + (b.description ? 3 : 0) + (+b.year > 2000 ? 3 : 0) - i * .05 }))
     .sort((x, y) => y.s - x.s).map(x => x.b);
-  searchInfo.sources = ['Google ' + (gall || gfr ? '✓' : '✗'), 'Apple ' + (apl ? '✓' : '✗'), 'OpenLib ' + (olr ? '✓' : '✗'), 'BnF ' + (/✗/.test(searchInfo.bnf || '') ? '✗' : (searchInfo.bnf || ''))].join(' · ');
+  searchInfo.sources = ['Google ' + (gall || gfr ? '✓' : '✗'), 'Apple ' + (apl ? '✓' : '✗'), 'OpenLib ' + (olr ? '✓' : '✗'), ...(S.settings.fnacOff ? [] : ['Fnac ' + (fnacState === '…' && fn === null && bn === null ? '…' : fnacState.startsWith('✓') ? '✓' : fnacState || '…')]), 'BnF ' + (/✗/.test(searchInfo.bnf || '') ? '✗' : (searchInfo.bnf || ''))].join(' · ');
   return out.slice(0, 40);
   }
 }
@@ -1550,7 +1718,7 @@ function addBook(data, status) {
   if (status === 'wish' && !b.releaseDate && b.year && +b.year > new Date().getFullYear()) b.releaseDate = b.year + '-01-01';
   if (status === 'read') b.currentPage = b.pages;
   if (!b.tags) b.tags = classify(b);
-  delete b.key; delete b.langSure;
+  delete b.key; delete b.langSure; delete b.fnac;
   S.books.push(b);
   if (toShelf && shelf(toShelf)) shelf(toShelf).books.push(b.id);
   save(); render();
@@ -1717,7 +1885,8 @@ function openBook(id) {
     <div class="section"><div class="section-h"><h2>Mes piles</h2></div>
       <div class="chips" id="d-shelves">${S.shelves.map(sh => `<button class="chip ${(sh.books || []).includes(b.id) ? 'p' : ''}" data-shelf="${sh.id}">${(sh.books || []).includes(b.id) ? '✓ ' : ''}${sh.emoji} ${esc(sh.name)}</button>`).join('')}
       <button class="chip" id="d-newshelf">＋ Nouvelle pile</button></div></div>
-    <button class="btn block" style="margin-top:24px" id="d-edition">🔄 Changer d’édition</button>
+    <a class="btn block" style="margin-top:24px;text-decoration:none" href="${esc(b.link && /fnac\.com/.test(b.link) ? b.link : FNAC_SEARCH(b.title + ' ' + firstAuthor(b.author)))}">🛒 Voir sur la Fnac</a>
+    <button class="btn block" style="margin-top:10px" id="d-edition">🔄 Changer d’édition</button>
     <div class="row" style="margin-top:10px;gap:10px"><button class="btn" style="flex:1" id="d-edit">✎ Modifier la fiche</button><button class="btn danger" style="flex:1" id="d-del">Supprimer</button></div>`);
   sh.querySelector('.sh').style.padding = '0 18px';
   bindView(sh);
